@@ -418,27 +418,32 @@ a { color: inherit; text-decoration: none; }
 .percent-away { height: 100%; background: #00bcd4; }
 
 /* Predictions page */
-/* Predictions page */
-.pred-card .up-v1-grid {{
-    display: flex !important;
-    align-items: stretch;
+.p-btn {{
+    display: block; width: 100%;
+    margin: 4px 0 2px;
+    padding: 8px;
+    background: rgba(0,230,118,0.1);
+    border: 1px solid rgba(0,230,118,0.3);
+    border-radius: 6px;
+    color: #00e676;
+    font-size: 11px; font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    cursor: pointer;
 }}
-.pred-card .up-v1-left,
-.pred-card .pred-center,
-.pred-card .up-v1-right {{
-    flex: 1;
-    display: flex !important;
-    align-items: center;
-    justify-content: center;
+.p-btn:hover {{
+    background: rgba(0,230,118,0.2);
 }}
-.pred-card .up-v1-left {{
-    flex-direction: column;
-    justify-content: center;
-    align-items: flex-start;
-}}
-.pred-center {{
-    font-size: 16px; font-weight: 800; color: #fff;
-    flex-direction: column;
+
+.p-txt {{
+    margin-bottom: 14px;
+    padding: 12px;
+    background: #0f1a2a;
+    border: 1px solid #2a3a4a;
+    border-radius: 8px;
+    font-size: 13px;
+    line-height: 1.7;
+    color: #aaa;
 }}
 
 /* Mobile responsive */
