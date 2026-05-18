@@ -418,13 +418,25 @@ a { color: inherit; text-decoration: none; }
 .percent-away { height: 100%; background: #00bcd4; }
 
 /* Predictions page */
-.pred-mid {{
-    display: flex; align-items: center; justify-content: center;
+.pred-card {
+    position: relative;
+}
+.pred-card .p-txt {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    z-index: 10;
+    margin: 0 !important;
+    border-radius: 10px;
+}
+.pred-mid {
+    display: flex; align-items: center;
     font-size: 16px; font-weight: 800; color: #fff;
     white-space: nowrap; flex-shrink: 0; padding: 0 10px;
-}}
+}
 
-.p-btn {{
+.p-btn {
     display: block; width: 100%;
     margin: 4px 0 2px;
     padding: 8px;
@@ -436,14 +448,14 @@ a { color: inherit; text-decoration: none; }
     text-transform: uppercase; letter-spacing: 1px;
     cursor: pointer;
 }}
-.p-btn:hover {{ background: rgba(0,230,118,0.2); }}
+.p-btn:hover { background: rgba(0,230,118,0.2); }
 
-.p-txt {{
+.p-txt {
     margin-bottom: 14px; padding: 12px;
     background: #0f1a2a; border: 1px solid #2a3a4a;
     border-radius: 8px; font-size: 13px;
     line-height: 1.7; color: #aaa;
-}}
+}
 
 /* Mobile responsive */
 @media (max-width: 640px) {

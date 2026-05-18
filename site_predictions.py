@@ -62,7 +62,7 @@ def _card(pred):
 
     # Карточка: лево (команды) | центр (прогноз) | право (время)
     html = f'''
-<div class="up-card up-card-v1">
+<div class="up-card up-card-v1 pred-card">
     <div class="up-v1-grid">
         <div class="up-v1-left">
             <div class="up-v1-row">
@@ -102,10 +102,12 @@ function toggleTxt(id) {
     var el = document.getElementById(id);
     var btn = document.getElementById('b-' + id);
     if (el.style.display === 'none') {
-        el.style.display = 'block';
+        el.style.display = "block";
+        el.parentNode.style.zIndex = "20";
         btn.textContent = 'Закрыть';
     } else {
-        el.style.display = 'none';
+        el.style.display = "none";
+        el.parentNode.style.zIndex = "";
         btn.textContent = 'Показать прогноз';
     }
 }
