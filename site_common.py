@@ -418,55 +418,29 @@ a { color: inherit; text-decoration: none; }
 .percent-away { height: 100%; background: #00bcd4; }
 
 /* Predictions page */
-.pred-stats {{
-    background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 12px;
-    padding: 16px; margin-bottom: 20px;
+/* Predictions page */
+.pred-card .up-v1-grid {{
+    align-items: center !important;
 }}
-.pred-stats-title {{ font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 12px; }}
-.pred-stats-sub {{ font-size: 12px; color: #888; font-weight: 400; }}
-.pred-stats-row {{ display: flex; gap: 12px; }}
-.pred-stat-box {{ flex: 1; background: #1a2a3a; border-radius: 8px; padding: 10px; text-align: center; }}
-.pred-stat-label {{ font-size: 11px; color: #888; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }}
-.pred-stat-val {{ font-size: 18px; font-weight: 800; color: #fff; }}
-
-/* Prediction cards */
-.pred-card {{
-    background: linear-gradient(135deg, #1a2a3a, #1a1a1a);
-    border: 1px solid rgba(255, 215, 0, 0.2);
-    border-radius: 12px; padding: 14px; margin-bottom: 10px;
+.pred-card .up-v1-left {{
+    flex: 1; display: flex !important; flex-direction: column;
+    justify-content: center; text-align: left;
 }}
-.pred-top-row {{ display: flex; justify-content: space-between; align-items: flex-start; }}
-.pred-teams {{ flex: 1; min-width: 0; }}
-.pred-team {{ padding: 4px 0; display: flex; align-items: center; gap: 6px; }}
-.pred-team-away {{ margin-top: 2px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.05); }}
-.pred-team-name {{ font-size: 14px; font-weight: 600; color: #fff; }}
-.pred-time-score {{ flex-shrink: 0; text-align: right; }}
-.pred-time {{ font-size: 14px; font-weight: 700; color: #ffd700; }}
-
-/* Probability bar */
-.pred-probs {{ margin-top: 10px; }}
-.pred-prob-bar {{ display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: #2a3a4a; }}
-.pred-prob-home {{ background: #00e676; }}
-.pred-prob-draw {{ background: #ffd700; }}
-.pred-prob-away {{ background: #00bcd4; }}
-.pred-prob-labels {{ display: flex; justify-content: space-between; font-size: 10px; color: #888; margin-top: 3px; }}
-
-/* Odds row */
-.pred-odds-row {{ display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }}
-.pred-odds-box {{
-    background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 8px;
-    padding: 4px 10px; text-align: center; min-width: 50px;
+.pred-center {{
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    font-size: 16px; font-weight: 800; color: #fff;
+    text-align: center;
+    white-space: nowrap;
 }}
-.pred-odds-label {{ font-size: 9px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }}
-.pred-odds-val {{ font-size: 15px; font-weight: 700; color: #fff; }}
+.pred-card .up-v1-right {{
+    flex: 1 1 0% !important; display: flex !important; flex-direction: column;
+    align-items: center; justify-content: center;
+    text-align: center;
+}}
 
-/* Ratings */
-.pred-ratings {{ display: flex; gap: 16px; font-size: 11px; color: #888; margin-top: 8px; }}
-
-/* Verdict */
-.pred-verdict {{
-    margin-top: 10px; padding-top: 10px; border-top: 1px solid #2a3a4a;
-    font-size: 13px; line-height: 1.6; color: #aaa;
+@media (max-width: 640px) {{
+    .pred-center {{ font-size: 16px; }}
+    .pred-card .up-v1-grid {{ gap: 6px; }}
 }}
 
 /* Mobile responsive */
@@ -538,6 +512,9 @@ def page_header(title, active_page, now_str):
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="refresh" content="300">
 <title>{escape(title)} — Zula Спорт</title>

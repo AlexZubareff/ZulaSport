@@ -36,3 +36,4 @@ sstats.key
 # ─── Бэкапы ───
 *.bak.*
 memory/
+.git-creds
