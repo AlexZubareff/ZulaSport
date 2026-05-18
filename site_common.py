@@ -418,6 +418,12 @@ a { color: inherit; text-decoration: none; }
 .percent-away { height: 100%; background: #00bcd4; }
 
 /* Predictions page */
+.pred-mid {{
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; font-weight: 800; color: #fff;
+    white-space: nowrap; flex-shrink: 0; padding: 0 10px;
+}}
+
 .p-btn {{
     display: block; width: 100%;
     margin: 4px 0 2px;
@@ -427,23 +433,16 @@ a { color: inherit; text-decoration: none; }
     border-radius: 6px;
     color: #00e676;
     font-size: 11px; font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 1px;
+    text-transform: uppercase; letter-spacing: 1px;
     cursor: pointer;
 }}
-.p-btn:hover {{
-    background: rgba(0,230,118,0.2);
-}}
+.p-btn:hover {{ background: rgba(0,230,118,0.2); }}
 
 .p-txt {{
-    margin-bottom: 14px;
-    padding: 12px;
-    background: #0f1a2a;
-    border: 1px solid #2a3a4a;
-    border-radius: 8px;
-    font-size: 13px;
-    line-height: 1.7;
-    color: #aaa;
+    margin-bottom: 14px; padding: 12px;
+    background: #0f1a2a; border: 1px solid #2a3a4a;
+    border-radius: 8px; font-size: 13px;
+    line-height: 1.7; color: #aaa;
 }}
 
 /* Mobile responsive */
