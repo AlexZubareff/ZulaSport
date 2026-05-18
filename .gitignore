@@ -1,0 +1,37 @@
+# ─── Сгенерированный сайт ───
+index.html
+news_data.json
+live_scores.json
+team_logos.json
+
+# ─── Операционные данные (меняются постоянно) ───
+predictions_history.json
+predictions_data.json
+predictions_data.json.bak
+posted_news.json
+sport_bot_state.json
+.evaluate_health_state.json
+
+# ─── Кеш / временные файлы ───
+/tmp/
+__pycache__/
+*.pyc
+*.pyo
+*.bak
+*.broken
+
+# ─── Секреты ───
+sstats.key
+/etc/bot_token.key
+/etc/sstats.key
+
+# ─── Jupyter / IDE ───
+.ipynb_checkpoints/
+.venv/
+*.egg-info/
+
+# ─── Логи ───
+*.log
+
+# ─── Бэкапы ───
+*.bak.*
