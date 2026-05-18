@@ -27,7 +27,8 @@ def main():
         'news': ['news'],
         'schedule': ['schedule'],
         'results': ['results'],
-        'all': ['news', 'schedule', 'results'],
+        'predictions': ['predictions'],
+        'all': ['news', 'schedule', 'results', 'predictions'],
     }
 
     to_run = sections.get(section, sections['all'])
@@ -46,6 +47,11 @@ def main():
         print('=== Результаты ===')
         from site_results import generate_results
         generate_results('/var/www/sport/results.html')
+
+    if 'predictions' in to_run:
+        print('=== Прогнозы ===')
+        from site_predictions import generate_predictions
+        generate_predictions('/var/www/sport/predictions.html')
 
     # Редирект index.html → news.html
     if section == 'all':
