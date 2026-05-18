@@ -131,22 +131,23 @@ else
     errors=$((errors + 1))
 fi
 
-# 4. Дата tv_channels совпадает с tomorrow
+# 4. В tv_channels есть данные на завтра
 if [[ -f "$TV_CHANNELS" ]]; then
     date_ok=$(python3 -c "
 import json
 from datetime import datetime, timedelta, timezone
 with open('${TV_CHANNELS}') as f:
     d = json.load(f)
-date_str = str(d.get('date', ''))
-tomorrow = (datetime.now(timezone.utc) + timedelta(hours=3) + timedelta(days=1)).strftime('%Y%m%d')  # MSK
-print('OK' if date_str == tomorrow else f'MISMATCH: file={date_str} expected={tomorrow}')
+by_date = d.get('matches_by_date', {})
+tomorrow = (datetime.now(timezone.utc) + timedelta(hours=3) + timedelta(days=1)).strftime('%Y%m%d')
+matches_count = len(by_date.get(tomorrow, []))
+print('OK' if matches_count > 0 else f'MISSING: {tomorrow} has 0 matches')
 " 2>/dev/null || echo "PARSE_ERROR")
     if [[ "$date_ok" != "OK" ]]; then
-        alert "Дата tv_channels не совпадает" "$date_ok"
+        alert "tv_channels: нет данных на завтра" "$date_ok"
         errors=$((errors + 1))
     else
-        ok "Дата tv_channels: tomorrow"
+        ok "tv_channels: данные на завтра есть"
     fi
 fi
 
