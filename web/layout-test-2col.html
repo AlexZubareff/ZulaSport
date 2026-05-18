@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Zula Sport — Layout Test (2 колонки)</title>
+<style>
+/* ═══════════════════════════════════════════════════════════════
+   BASE
+   ═══════════════════════════════════════════════════════════════ */
+body {
+  background: #0d1b2a;
+  color: #ccc;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  padding: 20px;
+  margin: 0 auto;
+  max-width: 500px; /* mobile-first */
+}
+
+h2 { color: #fff; font-size: 18px; margin-bottom: 12px; }
+h2 .badge { font-size: 12px; font-weight: 600; color: #888; margin-left: 8px; }
+
+.section-sub {
+  font-size: 12px;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin: 20px 0 8px;
+  padding-left: 2px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CARD
+   ═══════════════════════════════════════════════════════════════ */
+.up-card {
+  background: linear-gradient(135deg, #1a2a3a, #1a1a1a);
+  border: 1px solid #2a3a4a;
+  border-radius: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: border-color 0.2s, transform 0.15s;
+}
+.up-card:hover { border-color: #00e676; transform: translateY(-1px); }
+.up-card.finished { opacity: 0.65; cursor: default; }
+.up-card.finished:hover { border-color: #2a3a4a; transform: none; }
+.up-card.has-pred { border-color: rgba(0, 230, 118, 0.25); }
+
+.up-v1-grid {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+}
+.up-v1-left { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; }
+.up-v1-right {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex-shrink: 0;
+  min-width: 60px;
+}
+
+.up-v1-row { padding: 3px 0; }
+.up-v1-row-away { margin-top: 1px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.05); }
+
+.up-v1-team-row { display: flex; align-items: center; gap: 6px; }
+.up-v1-team-row .logo { width: 16px; height: 16px; border-radius: 50%; object-fit: contain; flex-shrink: 0; }
+.up-v1-name { font-size: 13px; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.up-v1-live-badge {
+  font-size: 10px;
+  font-weight: 800;
+  color: #fff;
+  background: #e53935;
+  border-radius: 4px;
+  padding: 2px 8px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+.up-v1-score {
+  font-size: 20px;
+  font-weight: 800;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+
+.up-v1-time { font-size: 20px; font-weight: 800; color: #888; font-variant-numeric: tabular-nums; }
+.up-v1-pred-badge {
+  font-size: 10px;
+  font-weight: 700;
+  color: #00e676;
+  background: rgba(0, 230, 118, 0.1);
+  border: 1px solid rgba(0, 230, 118, 0.25);
+  border-radius: 6px;
+  padding: 3px 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  white-space: nowrap;
+}
+
+.up-v1-league { font-size: 10px; color: #555; margin-bottom: 2px; }
+
+/* ═══════════════════════════════════════════════════════════════
+   DESKTOP: 2-COLUMN GRID
+   ═══════════════════════════════════════════════════════════════ */
+@media (min-width: 768px) {
+  body {
+    max-width: 900px;
+    padding: 24px 32px;
+  }
+
+  .card-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .card-grid .up-card {
+    margin-bottom: 0;
+  }
+
+  /* Section header spans full width */
+  .section-sub {
+    grid-column: 1 / -1;
+    margin-bottom: 4px;
+  }
+
+  h2 {
+    grid-column: 1 / -1;
+  }
+
+  /* Slightly bigger text on desktop */
+  .up-v1-name { font-size: 14px; }
+  .up-v1-score { font-size: 22px; }
+  .up-v1-pred-badge { font-size: 11px; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MOBILE (default, < 768px)
+   ═══════════════════════════════════════════════════════════════ */
+@media (max-width: 640px) {
+  body { padding: 12px; }
+  .up-card { padding: 10px 12px; border-radius: 10px; }
+  .up-v1-name { font-size: 12px; }
+  .up-v1-score { font-size: 18px; }
+  .up-v1-time { font-size: 18px; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MODAL
+   ═══════════════════════════════════════════════════════════════ */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: rgba(0,0,0,0.7);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+}
+.modal-overlay.open { display: flex; }
+.modal {
+  background: #162232;
+  border: 1px solid #2a3a4a;
+  border-radius: 16px;
+  width: 90%;
+  max-width: 480px;
+  max-height: 85vh;
+  overflow-y: auto;
+  padding: 20px;
+  position: relative;
+}
+.modal-close {
+  position: absolute;
+  top: 12px; right: 16px;
+  font-size: 22px; color: #666;
+  cursor: pointer; background: none; border: none; z-index: 10;
+}
+.modal-close:hover { color: #fff; }
+.modal-live {
+  font-size: 10px; font-weight: 800; color: #e53935;
+  text-align: center; text-transform: uppercase; letter-spacing: 1px;
+  animation: pulse 1.5s ease-in-out infinite;
+  margin-bottom: 4px;
+}
+.modal-header {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  padding-bottom: 14px; border-bottom: 1px solid #2a3a4a; margin-bottom: 14px;
+}
+.modal-team { flex: 1; font-size: 15px; font-weight: 700; color: #fff; text-align: center; }
+.modal-score { font-size: 26px; font-weight: 800; color: #fff; font-variant-numeric: tabular-nums; text-align: center; flex-shrink: 0; min-width: 50px; }
+
+.stats-table { width: 100%; border-collapse: collapse; }
+.stats-table td { padding: 5px 4px; font-size: 12px; }
+.stats-table .stat-home { text-align: right; font-weight: 700; color: #fff; width: 20%; }
+.stats-table .stat-name { text-align: center; color: #888; width: 60%; font-size: 11px; }
+.stats-table .stat-away { text-align: left; font-weight: 700; color: #fff; width: 20%; }
+.stats-table tr:nth-child(even) { background: rgba(255,255,255,0.03); }
+
+.percent-row { padding: 6px 4px 2px !important; }
+.percent-label { font-size: 10px; color: #888; text-align: center; margin-bottom: 3px; }
+.percent-bars { display: flex; align-items: center; gap: 6px; justify-content: center; }
+.percent-val { font-size: 11px; font-weight: 700; color: #fff; min-width: 28px; text-align: center; }
+.percent-track { flex: 1; height: 5px; background: #2a3a4a; border-radius: 3px; overflow: hidden; display: flex; max-width: 160px; }
+.percent-home { height: 100%; background: #00e676; }
+.percent-away { height: 100%; background: #00bcd4; }
+</style>
+</head>
+<body>
+
+<h2>📊 Результаты <span class="badge">17 мая</span></h2>
+
+<div class="card-grid">
+
+<div class="section-sub">🏴 АПЛ</div>
+
+<div class="up-card finished">
+  <div class="up-v1-grid">
+    <div class="up-v1-left">
+      <div class="up-v1-row"><span class="up-v1-team-row"><span class="up-v1-name">⚫ Ньюкасл</span></span></div>
+      <div class="up-v1-row up-v1-row-away"><span class="up-v1-team-row"><span class="up-v1-name">⚒ Вест Хэм</span></span></div>
+    </div>
+    <div class="up-v1-right">
+      <div class="up-v1-score">3:1</div>
+    </div>
+  </div>
+</div>
+
+<div class="up-card finished">
+  <div class="up-v1-grid">
+    <div class="up-v1-left">
+      <div class="up-v1-row"><span class="up-v1-team-row"><span class="up-v1-name">🔴 Манчестер Юнайтед</span></span></div>
+      <div class="up-v1-row up-v1-row-away"><span class="up-v1-team-row"><span class="up-v1-name">🌲 Ноттингем Форест</span></span></div>
+    </div>
+    <div class="up-v1-right">
+      <div class="up-v1-score">3:2</div>
+    </div>
+  </div>
+</div>
+
+<div class="up-card finished">
+  <div class="up-v1-grid">
+    <div class="up-v1-left">
+      <div class="up-v1-row"><span class="up-v1-team-row"><span class="up-v1-name">🔵 Эвертон</span></span></div>
+      <div class="up-v1-row up-v1-row-away"><span class="up-v1-team-row"><span class="up-v1-name">🔴 Сандерленд</span></span></div>
+    </div>
+    <div class="up-v1-right">
+      <div class="up-v1-score">1:3</div>
+    </div>
+  </div>
+</div>
+
+<div class="up-card finished">
+  <div class="up-v1-grid">
+    <div class="up-v1-left">
+      <div class="up-v1-row"><span class="up-v1-team-row"><span class="up-v1-name">💙 Лидс</span></span></div>
+      <div class="up-v1-row up-v1-row-away"><span class="up-v1-team-row"><span class="up-v1-name">🕊 Брайтон</span></span></div>
+    </div>
+    <div class="up-v1-right">
+      <div class="up-v1-score">1:0</div>
+    </div>
+  </div>
+</div>
+
+<div class="up-card finished">
+  <div class="up-v1-grid">
+    <div class="up-v1-left">
+      <div class="up-v1-row"><span class="up-v1-team-row"><span class="up-v1-name">🐝 Брентфорд</span></span></div>
+      <div class="up-v1-row up-v1-row-away"><span class="up-v1-team-row"><span class="up-v1-name">💎 Кристал Пэлас</span></span></div>
+    </div>
+    <div class="up-v1-right">
+      <div class="up-v1-score">2:2</div>
+    </div>
+  </div>
+</div>
+
+<div class="up-card finished">
+  <div class="up-v1-grid">
+    <div class="up-v1-left">
+      <div class="up-v1-row"><span class="up-v1-team-row"><span class="up-v1-name">🐺 Вулверхэмптон</span></span></div>
+      <div class="up-v1-row up-v1-row-away"><span class="up-v1-team-row"><span class="up-v1-name">⚪ Фулхэм</span></span></div>
+    </div>
+    <div class="up-v1-right">
+      <div class="up-v1-score">1:1</div>
+    </div>
+  </div>
+</div>
+
+<div class="section-sub" style="margin-top:12px">🇪🇸 Ла Лига</div>
+
+<div class="up-card finished">
+  <div class="up-v1-grid">
+    <div class="up-v1-left">
+      <div class="up-v1-row"><span class="up-v1-team-row"><span class="up-v1-name">⚪ Атлетик</span></span></div>
+      <div class="up-v1-row up-v1-row-away"><span class="up-v1-team-row"><span class="up-v1-name">🔵 Сельта</span></span></div>
+    </div>
+    <div class="up-v1-right">
+      <div class="up-v1-score">1:1</div>
+    </div>
+  </div>
+</div>
+
+<div class="up-card finished">
+  <div class="up-v1-grid">
+    <div class="up-v1-left">
+      <div class="up-v1-row"><span class="up-v1-team-row"><span class="up-v1-name">🔴🔵 Атлетико Мадрид</span></span></div>
+      <div class="up-v1-row up-v1-row-away"><span class="up-v1-team-row"><span class="up-v1-name">⚪ Жирона</span></span></div>
+    </div>
+    <div class="up-v1-right">
+      <div class="up-v1-score">1:0</div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /card-grid -->
+
+<h2 style="margin-top:28px">⚽ Сегодня <span class="badge">18 мая</span></h2>
+
+<div class="card-grid">
+
+<div class="section-sub">🏴 АПЛ</div>
+
+<div class="up-card has-pred">
+  <div class="up-v1-grid">
+    <div class="up-v1-left">
+      <div class="up-v1-row"><span class="up-v1-team-row"><span class="up-v1-name">🔴 Арсенал</span></span></div>
+      <div class="up-v1-row up-v1-row-away"><span class="up-v1-team-row"><span class="up-v1-name">🟢 Бёрнли</span></span></div>
+    </div>
+    <div class="up-v1-right">
+      <div class="up-v1-time">14:30</div>
+      <div class="up-v1-pred-badge">Прогноз</div>
+    </div>
+  </div>
+</div>
+
+<div class="up-card has-pred">
+  <div class="up-v1-grid">
+    <div class="up-v1-left">
+      <div class="up-v1-row"><span class="up-v1-team-row"><span class="up-v1-name">🍒 Борнмут</span></span></div>
+      <div class="up-v1-row up-v1-row-away"><span class="up-v1-team-row"><span class="up-v1-name">💙 Манчестер Сити</span></span></div>
+    </div>
+    <div class="up-v1-right">
+      <div class="up-v1-time">17:00</div>
+      <div class="up-v1-pred-badge">Прогноз</div>
+    </div>
+  </div>
+</div>
+
+<div class="up-card has-pred">
+  <div class="up-v1-grid">
+    <div class="up-v1-left">
+      <div class="up-v1-row"><span class="up-v1-team-row"><span class="up-v1-name">🔵 Челси</span></span></div>
+      <div class="up-v1-row up-v1-row-away"><span class="up-v1-team-row"><span class="up-v1-name">⚪ Тоттенхэм</span></span></div>
+    </div>
+    <div class="up-v1-right">
+      <div class="up-v1-time">19:30</div>
+      <div class="up-v1-pred-badge">Прогноз</div>
+    </div>
+  </div>
+</div>
+
+<div class="up-card">
+  <div class="up-v1-grid">
+    <div class="up-v1-left">
+      <div class="up-v1-row"><span class="up-v1-team-row"><span class="up-v1-name">🔴 Ливерпуль</span></span></div>
+      <div class="up-v1-row up-v1-row-away"><span class="up-v1-team-row"><span class="up-v1-name">⚪ Лестер</span></span></div>
+    </div>
+    <div class="up-v1-right">
+      <div class="up-v1-time">22:00</div>
+    </div>
+  </div>
+</div>
+
+<div class="section-sub" style="margin-top:12px">🇮🇹 Серия А</div>
+
+<div class="up-card">
+  <div class="up-v1-grid">
+    <div class="up-v1-left">
+      <div class="up-v1-row"><span class="up-v1-team-row"><span class="up-v1-name">🦅 Лацио</span></span></div>
+      <div class="up-v1-row up-v1-row-away"><span class="up-v1-team-row"><span class="up-v1-name">⚫ Ювентус</span></span></div>
+    </div>
+    <div class="up-v1-right">
+      <div class="up-v1-time">21:45</div>
+    </div>
+  </div>
+</div>
+
+<div class="up-card live">
+  <div class="up-v1-grid">
+    <div class="up-v1-left">
+      <div class="up-v1-row"><span class="up-v1-team-row"><span class="up-v1-name">🔴 Милан</span></span></div>
+      <div class="up-v1-row up-v1-row-away"><span class="up-v1-team-row"><span class="up-v1-name">🔵 Наполи</span></span></div>
+    </div>
+    <div class="up-v1-right">
+      <div class="up-v1-live-badge">LIVE</div>
+      <div class="up-v1-score">1:1</div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /card-grid -->
+
+<h2 style="margin-top:28px">📺 Завтра <span class="badge">19 мая</span></h2>
+
+<div class="card-grid">
+
+<div class="section-sub">🇩🇪 Бундеслига</div>
+
+<div class="up-card">
+  <div class="up-v1-grid">
+    <div class="up-v1-left">
+      <div class="up-v1-row"><span class="up-v1-team-row"><span class="up-v1-name">🟥 Бавария</span></span></div>
+      <div class="up-v1-row up-v1-row-away"><span class="up-v1-team-row"><span class="up-v1-name">🟨 Боруссия Д</span></span></div>
+    </div>
+    <div class="up-v1-right">
+      <div class="up-v1-time">19:30</div>
+    </div>
+  </div>
+</div>
+
+<div class="up-card">
+  <div class="up-v1-grid">
+    <div class="up-v1-left">
+      <div class="up-v1-row"><span class="up-v1-team-row"><span class="up-v1-name">🟥 Байер</span></span></div>
+      <div class="up-v1-row up-v1-row-away"><span class="up-v1-team-row"><span class="up-v1-name">🟤 РБ Лейпциг</span></span></div>
+    </div>
+    <div class="up-v1-right">
+      <div class="up-v1-time">21:30</div>
+    </div>
+  </div>
+</div>
+
+<div class="section-sub" style="margin-top:12px">🇫🇷 Лига 1</div>
+
+<div class="up-card">
+  <div class="up-v1-grid">
+    <div class="up-v1-left">
+      <div class="up-v1-row"><span class="up-v1-team-row"><span class="up-v1-name">🔵 ПСЖ</span></span></div>
+      <div class="up-v1-row up-v1-row-away"><span class="up-v1-team-row"><span class="up-v1-name">🔴 Марсель</span></span></div>
+    </div>
+    <div class="up-v1-right">
+      <div class="up-v1-time">22:00</div>
+    </div>
+  </div>
+</div>
+
+<div class="up-card">
+  <div class="up-v1-grid">
+    <div class="up-v1-left">
+      <div class="up-v1-row"><span class="up-v1-team-row"><span class="up-v1-name">🔴 Лион</span></span></div>
+      <div class="up-v1-row up-v1-row-away"><span class="up-v1-team-row"><span class="up-v1-name">🟡 Лилль</span></span></div>
+    </div>
+    <div class="up-v1-right">
+      <div class="up-v1-time">22:00</div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /card-grid -->
+
+<p style="color:#555;font-size:12px;margin-top:28px;text-align:center;border-top:1px solid #1a2a3a;padding-top:16px">
+  ✅ Desktop: 2 карточки в ряд (≥768px)<br>
+  📱 Mobile: 1 карточка в ряд (<768px)<br>
+  🔄 Разверни браузер — сетка перестраивается
+</p>
+
+<script>
+document.querySelectorAll('.up-card:not(.finished)').forEach(function(card) {
+  card.addEventListener('click', function() {
+    var liveBadge = this.querySelector('.up-v1-live-badge');
+    if (liveBadge) {
+      document.getElementById('stats-modal').classList.add('open');
+      document.body.style.overflow = 'hidden';
+    }
+  });
+});
+
+function closeStats() {
+  document.getElementById('stats-modal').classList.remove('open');
+  document.body.style.overflow = '';
+}
+</script>
+
+</body>
+</html>

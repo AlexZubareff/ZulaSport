@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Live Stats Test</title>
+<style>
+body { background: #0d1b2a; color: #ccc; font-family: -apple-system, sans-serif; padding: 20px; max-width: 500px; margin: 0 auto; }
+h2 { color: #fff; font-size: 16px; margin-bottom: 12px; }
+.section-sub { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 1px; margin: 16px 0 8px; }
+
+/* Card */
+.up-card {
+  background: linear-gradient(135deg,#1a2a3a,#1a1a1a);
+  border: 1px solid #2a3a4a;
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+.up-card:hover { border-color: #00e676; }
+.up-v1-grid { display: flex; gap: 14px; }
+.up-v1-left { flex: 1; min-width: 0; }
+.up-v1-right { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; flex-shrink: 0; }
+.up-v1-row { padding: 4px 0; }
+.up-v1-row-away { margin-top: 2px; padding-top: 6px; }
+.up-v1-team-row { display: flex; align-items: center; gap: 6px; }
+.up-v1-name { font-size: 14px; font-weight: 600; color: #fff; }
+.up-v1-live-badge { font-size: 11px; font-weight: 800; color: #fff; background: #e53935; border-radius: 4px; padding: 2px 8px; text-transform: uppercase; letter-spacing: 1px; animation: pulse 1.5s ease-in-out infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+.up-v1-score { font-size: 22px; font-weight: 800; color: #fff; font-variant-numeric: tabular-nums; }
+
+/* Modal */
+.modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; align-items: center; justify-content: center; }
+.modal-overlay.open { display: flex; }
+.modal { background: #162232; border: 1px solid #2a3a4a; border-radius: 16px; width: 90%; max-width: 480px; max-height: 85vh; overflow-y: auto; padding: 20px; position: relative; }
+.modal-close { position: absolute; top: 12px; right: 16px; font-size: 22px; color: #666; cursor: pointer; background: none; border: none; z-index: 10; }
+.modal-close:hover { color: #fff; }
+.modal-live { font-size: 10px; font-weight: 800; color: #e53935; text-align: center; text-transform: uppercase; letter-spacing: 1px; animation: pulse 1.5s ease-in-out infinite; margin-bottom: 4px; }
+.modal-header { display: flex; align-items: center; justify-content: center; gap: 10px; padding-bottom: 14px; border-bottom: 1px solid #2a3a4a; margin-bottom: 14px; }
+.modal-team { flex: 1; font-size: 15px; font-weight: 700; color: #fff; text-align: center; }
+.modal-score { font-size: 26px; font-weight: 800; color: #fff; font-variant-numeric: tabular-nums; text-align: center; flex-shrink: 0; min-width: 50px; }
+.stats-table { width: 100%; border-collapse: collapse; }
+.stats-table td { padding: 6px 6px; font-size: 13px; }
+.stats-table .stat-home { text-align: right; font-weight: 700; color: #fff; width: 20%; }
+.stats-table .stat-name { text-align: center; color: #888; width: 60%; font-size: 12px; }
+.stats-table .stat-away { text-align: left; font-weight: 700; color: #fff; width: 20%; }
+.stats-table tr:nth-child(even) { background: rgba(255,255,255,0.03); }
+
+/* Percents row */
+.percent-row { padding: 8px 6px 2px !important; }
+.percent-label { font-size: 11px; color: #888; text-align: center; margin-bottom: 4px; }
+.percent-bars { display: flex; align-items: center; gap: 8px; justify-content: center; }
+.percent-val { font-size: 12px; font-weight: 700; color: #fff; min-width: 32px; text-align: center; }
+.percent-track { flex: 1; height: 6px; background: #2a3a4a; border-radius: 3px; overflow: hidden; display: flex; max-width: 180px; }
+.percent-home { height: 100%; background: #00e676; }
+.percent-away { height: 100%; background: #00bcd4; }
+</style>
+</head>
+<body>
+
+<h2>⚽ Сегодня — АПЛ</h2>
+<div class="section-sub">🏴 АПЛ</div>
+
+<div class="up-card" onclick="openStats()">
+  <div class="up-v1-grid">
+    <div class="up-v1-left">
+      <div class="up-v1-row"><span class="up-v1-team-row"><span class="up-v1-name">⚫ Ньюкасл</span></span></div>
+      <div class="up-v1-row up-v1-row-away"><span class="up-v1-team-row"><span class="up-v1-name">⚒ Вест Хэм</span></span></div>
+    </div>
+    <div class="up-v1-right">
+      <div class="up-v1-live-badge">▶ LIVE</div>
+      <div class="up-v1-score">2:0</div>
+    </div>
+  </div>
+</div>
+
+<div class="section-sub">🇪🇸 Ла Лига</div>
+<div class="up-card" style="opacity:0.6;cursor:default">
+  <div class="up-v1-grid">
+    <div class="up-v1-left">
+      <div class="up-v1-row"><span class="up-v1-team-row"><span class="up-v1-name">🔴 Реал Мадрид</span></span></div>
+      <div class="up-v1-row up-v1-row-away"><span class="up-v1-team-row"><span class="up-v1-name">🟢 Бетис</span></span></div>
+    </div>
+    <div class="up-v1-right">
+      <div class="up-v1-score" style="font-size:24px">22:00</div>
+      <div style="font-size:11px;font-weight:600;color:#00e676;background:rgba(0,230,118,0.1);border:1px solid rgba(0,230,118,0.3);border-radius:6px;padding:4px 12px;text-transform:uppercase;letter-spacing:1px">Прогноз</div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="stats-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeStats()">✕</button>
+    <div class="modal-live">▶ LIVE</div>
+    <div class="modal-header">
+      <div class="modal-team">⚫ Ньюкасл</div>
+      <div class="modal-score">2:0</div>
+      <div class="modal-team">⚒ Вест Хэм</div>
+    </div>
+    <table class="stats-table" id="stats-body"></table>
+  </div>
+</div>
+
+<script>
+var STATS_DATA = {
+  "Ньюкасл": {
+    "possessionPct": "60.2",
+    "totalShots": "4", "shotsOnTarget": "2", "shotPct": "0.5", "blockedShots": "2",
+    "accuratePasses": "201", "totalPasses": "238", "passPct": "0.8",
+    "wonCorners": "6",
+    "offsides": "0",
+    "accurateCrosses": "1", "totalCrosses": "12", "crossPct": "0.1",
+    "totalLongBalls": "19", "accurateLongBalls": "9", "longballPct": "0.5",
+    "saves": "2",
+    "effectiveTackles": "5", "totalTackles": "8", "tacklePct": "0.6",
+    "interceptions": "2",
+    "effectiveClearance": "10", "totalClearance": "10",
+    "foulsCommitted": "4", "yellowCards": "0", "redCards": "0"
+  },
+  "Вест Хэм": {
+    "possessionPct": "39.8",
+    "totalShots": "4", "shotsOnTarget": "2", "shotPct": "0.5", "blockedShots": "2",
+    "accuratePasses": "124", "totalPasses": "157", "passPct": "0.8",
+    "wonCorners": "1",
+    "offsides": "0",
+    "accurateCrosses": "2", "totalCrosses": "7", "crossPct": "0.3",
+    "totalLongBalls": "25", "accurateLongBalls": "9", "longballPct": "0.4",
+    "saves": "0",
+    "effectiveTackles": "4", "totalTackles": "6", "tacklePct": "0.7",
+    "interceptions": "3",
+    "effectiveClearance": "14", "totalClearance": "14",
+    "foulsCommitted": "3", "yellowCards": "0", "redCards": "0"
+  }
+};
+
+var STAT_NAMES = {
+  "possessionPct": "Владение",
+  "totalShots": "Всего ударов",
+  "shotsOnTarget": "Удары в створ",
+  "shotPct": "Точность ударов",
+  "blockedShots": "Заблокировано",
+  "totalPasses": "Всего пасов",
+  "accuratePasses": "Точные пасы",
+  "passPct": "Точность пасов",
+  "wonCorners": "Угловые",
+  "offsides": "Офсайды",
+  "totalCrosses": "Кроссы",
+  "accurateCrosses": "Точные кроссы",
+  "crossPct": "Точность кроссов",
+  "totalLongBalls": "Длинные передачи",
+  "accurateLongBalls": "Точные длинные",
+  "longballPct": "Точность длинных",
+  "saves": "Сейвы",
+  "totalTackles": "Отборы",
+  "effectiveTackles": "Успешных отборов",
+  "tacklePct": "Точность отборов",
+  "interceptions": "Перехваты",
+  "totalClearance": "Выносы",
+  "effectiveClearance": "Успешных выносов",
+  "foulsCommitted": "Фолы",
+  "yellowCards": "ЖК",
+  "redCards": "КК"
+};
+
+var PCT_STATS = ["possessionPct", "passPct", "shotPct", "crossPct", "longballPct", "tacklePct"];
+
+function percentRow(homeVal, awayVal, label) {
+  var h = parseFloat(homeVal);
+  var a = parseFloat(awayVal);
+  if (isNaN(h) || isNaN(a)) return "";
+  var total = h + a;
+  if (total === 0) return "";
+  var hp = Math.round(h / total * 100);
+  var ap = 100 - hp;
+  return '<tr><td colspan="3" class="percent-row">' +
+    '<div class="percent-label">' + label + '</div>' +
+    '<div class="percent-bars">' +
+      '<span class="percent-val">' + hp + '%</span>' +
+      '<div class="percent-track"><div class="percent-home" style="width:' + hp + '%"></div><div class="percent-away" style="width:' + ap + '%"></div></div>' +
+      '<span class="percent-val">' + ap + '%</span>' +
+    '</div></td></tr>';
+}
+
+function openStats() {
+  var hs = STATS_DATA["Ньюкасл"];
+  var as = STATS_DATA["Вест Хэм"];
+
+  var order = [
+    "possessionPct",
+    "totalShots", "shotsOnTarget", "shotPct", "blockedShots",
+    "accuratePasses", "totalPasses", "passPct",
+    "totalLongBalls", "accurateLongBalls",
+    "totalCrosses", "accurateCrosses",
+    "wonCorners", "offsides",
+    "saves",
+    "effectiveTackles", "totalTackles",
+    "interceptions",
+    "effectiveClearance", "totalClearance",
+    "foulsCommitted", "yellowCards", "redCards"
+  ];
+
+  var rows = "";
+  for (var i = 0; i < order.length; i++) {
+    var key = order[i];
+    if (!(key in hs) && !(key in as)) continue;
+    var h = hs[key] || "—";
+    var a = as[key] || "—";
+    var name = STAT_NAMES[key] || key;
+
+    if (PCT_STATS.indexOf(key) !== -1) {
+      rows += percentRow(h, a, name);
+    } else {
+      rows += '<tr><td class="stat-home">' + h + '</td>' +
+        '<td class="stat-name">' + name + '</td>' +
+        '<td class="stat-away">' + a + '</td></tr>';
+    }
+  }
+
+  document.getElementById("stats-body").innerHTML = rows;
+  document.getElementById("stats-modal").classList.add("open");
+  document.body.style.overflow = "hidden";
+}
+
+function closeStats() {
+  document.getElementById("stats-modal").classList.remove("open");
+  document.body.style.overflow = "";
+}
+
+document.getElementById("stats-modal").addEventListener("click", function(e) {
+  if (e.target === this) closeStats();
+});
+</script>
+
+<p style="color:#666;font-size:12px;margin-top:20px">
+  Клик по карточке → модалка со статистикой.<br>
+  Проценты — единый трек с цветами команд.
+</p>
+</body>
+</html>
+HTMLEOF
+echo "OK: $(wc -c < /var/www/sport/layout-test.html) bytes"

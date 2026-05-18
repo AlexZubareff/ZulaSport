@@ -1,0 +1,18 @@
+# ─── Live: kickoff at 13:00 MSK, then self-schedules ──────────────
+# ─── День: дооценка ──────────────────────────────────────────────
+# ─── Ночь: результаты за сутки + оценка ───────────────────────────
+# ─── Сайт Zula Спорт ─────────────────────────────────────────────
+# ─── Утро: сбор + прогнозы ───────────────────────────────────────
+# ─── Фон ──────────────────────────────────────────────────────────
+*/15 * * * * /usr/local/bin/zula-healthcheck.sh > /dev/null 2>&1
+*/15 10-20 * * * cd /opt && python3 evaluate_predictions.py > /dev/null 2>&1 && python3 evaluate_healthcheck.py > /dev/null 2>&1
+*/30 * * * * cd /opt && python3 generate_site.py > /dev/null 2>&1
+*/30 10-20 * * * cd /opt && python3 capper_pipeline.py --refresh > /dev/null 2>&1
+0 10 * * * cd /opt && python3 fetch_live_scores.py > /dev/null 2>&1
+0 21 * * * cd /opt && python3 daily_results.py > /dev/null 2>&1
+0 4 * * * cd /opt && python3 capper_pipeline.py --batch > /dev/null 2>&1
+0 7 * * * cd /opt && python3 evaluate_healthcheck.py > /dev/null 2>&1
+15 6 * * * cd /opt && python3 evaluate_predictions.py > /dev/null 2>&1 && python3 evaluate_healthcheck.py > /dev/null 2>&1
+20 6 * * * cd /opt && python3 send_prediction_stats.py > /dev/null 2>&1
+25 6 * * * cd /opt && python3 generate_site.py > /dev/null 2>&1
+30 2,3 * * * cd /opt && python3 fetch_tv_channels.py > /dev/null 2>&1

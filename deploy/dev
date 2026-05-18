@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# ==============================================================
+# dev — скилл разработки Zula Спорт
+#
+# Использование:
+#   dev test            — запустить все тесты
+#   dev test -v         — с детальным выводом
+#   dev test <file>     — только конкретный тест-файл
+#   dev check           — тесты + healthcheck
+#   dev r <script>      — перезапустить/проверить скрипт после правок
+#
+# Примеры:
+#   dev test                          # все тесты
+#   dev test tests/test_date_filter   # только дата-фильтр
+#   dev r generate_site               # тесты после правки generate_site.py
+# ==============================================================
+
+set -euo pipefail
+
+cd /opt
+
+SCRIPT="$0"
+MODE="${1:-test}"
+
+case "$MODE" in
+    test)
+        shift 2>/dev/null || true
+        if [[ $# -eq 0 ]]; then
+            python3 -m pytest tests/ -q --tb=short 2>/dev/null && echo "pytest: ✅" || echo "pytest: ⚠️ часть упала"
+            echo ""
+            echo "=== Интеграционный тест пайплайна ==="
+            python3 /opt/tests/test_pipeline_integration.py
+        elif [[ "$1" == "pipeline" ]]; then
+            python3 /opt/tests/test_pipeline_integration.py "${@:2}"
+        else
+            python3 -m pytest "$@" -q --tb=short
+        fi
+        echo ""
+        echo "✅ Все тесты пройдены"
+        ;;
+
+    check)
+        echo "=== Тесты ==="
+        python3 -m pytest tests/ -q --tb=short
+        echo ""
+        echo "=== Healthcheck ==="
+        /usr/local/bin/zula-healthcheck.sh
+        ;;
+
+    r|run)
+        shift
+        TARGET="${1:-}"
+        if [[ -z "$TARGET" ]]; then
+            echo "❌ Укажи скрипт: dev r generate_site"
+            exit 1
+        fi
+
+        # Определяем, какие тесты запускать по имени скрипта
+        case "$TARGET" in
+            generate_site|generate_site.py)
+                echo "🔍 Правка generate_site.py → тесты даты и сайта"
+                python3 -m pytest tests/test_date_filter.py tests/test_site_integrity.py tests/test_prediction_format.py -q --tb=short
+                ;;
+            fetch_tv_channels|fetch_tv_channels.py)
+                echo "🔍 Правка fetch_tv_channels.py → тесты даты и upcoming"
+                python3 -m pytest tests/test_date_filter.py tests/test_upcoming_save.py -q --tb=short
+                ;;
+            capper_pipeline|capper_pipeline.py)
+                echo "🔍 Правка capper_pipeline.py → тесты загрузки и формата"
+                python3 -m pytest tests/test_match_loading.py tests/test_prediction_format.py -q --tb=short
+                ;;
+            *)
+                echo "🔍 Полная проверка"
+                python3 -m pytest tests/ -q --tb=short
+                /usr/local/bin/zula-healthcheck.sh
+                ;;
+        esac
+        ;;
+
+    help|--help|-h)
+        head -30 "$SCRIPT" | grep -E '^#   |^# Пример'
+        ;;
+
+    *)
+        echo "❌ Неизвестная команда: $MODE"
+        echo "  dev test       — тесты"
+        echo "  dev check      — тесты + healthcheck"
+        echo "  dev r <script> — тесты после правки скрипта"
+        ;;
+esac

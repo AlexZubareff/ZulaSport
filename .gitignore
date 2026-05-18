@@ -35,3 +35,4 @@ sstats.key
 
 # ─── Бэкапы ───
 *.bak.*
+memory/
