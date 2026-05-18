@@ -9,8 +9,9 @@
 set -euo pipefail
 
 # ─── Конфиг ─────────────────────────────────────────────────────────
-SITE_URL="http://195.133.9.206/"
-INDEX="/var/www/sport/index.html"
+# Сайт теперь на HTTPS. Проверяем конкретную страницу (не IP).
+SITE_URL="https://zulasport.ru/predictions.html"
+INDEX="/var/www/sport/news.html"        # теперь главная — news.html
 TV_CHANNELS="/tmp/tv_channels_data.json"
 PREDICTIONS="/opt/predictions_data.json"
 UPCOMING="/tmp/upcoming_matches.json"
@@ -18,7 +19,7 @@ LOG="/var/log/zula-healthcheck.log"
 STATE_FILE="/tmp/zula-healthcheck.state"  # для dedup алертов
 
 # Лимиты
-MAX_AGE_MIN=75              # index.html — не старше 75 мин (крон каждые 30)
+MAX_AGE_MIN=75              # news.html — не старше 75 мин (крон каждые 30)
 TV_MAX_AGE_HOURS=26         # tv_channels — не старше 26ч (должен обновляться раз в день)
 MIN_TV_MATCHES=5            # минимум матчей в tv_channels
 MIN_PREDICTIONS=1           # минимум прогнозов
