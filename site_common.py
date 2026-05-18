@@ -420,10 +420,13 @@ a { color: inherit; text-decoration: none; }
 /* Predictions page */
 /* Predictions page — три равные колонки */
 .pred-card .up-v1-grid {{
-    display: grid !important;
-    grid-template-columns: 1fr 1fr 1fr;
-    align-items: center;
-    gap: 6px;
+    display: flex !important; align-items: center;
+    justify-content: space-between;
+}}
+.pred-card .up-v1-left,
+.pred-card .pred-center,
+.pred-card .up-v1-right {{
+    flex: 1;
 }}
 .pred-card .up-v1-left {{
     display: flex !important; flex-direction: column;
@@ -432,15 +435,12 @@ a { color: inherit; text-decoration: none; }
 .pred-center {{
     font-size: 16px; font-weight: 800; color: #fff;
     text-align: center;
+    display: flex; align-items: center; justify-content: center;
 }}
 .pred-card .up-v1-right {{
     display: flex !important; flex-direction: column;
     align-items: center; justify-content: center;
     text-align: center;
-}}
-
-@media (max-width: 640px) {{
-    .pred-center {{ font-size: 16px; }}
 }}
 
 /* Mobile responsive */
