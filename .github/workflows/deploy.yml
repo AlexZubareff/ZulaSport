@@ -1,0 +1,59 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          port: ${{ secrets.PORT }}
+          script: |
+            cd /opt
+            echo "=== Pulling from GitHub ==="
+            git pull origin main
+            echo ""
+            echo "=== Generating site ==="
+            python3 generate_site.py --section all
+            echo ""
+            echo "=== Running tests ==="
+            python3 -c "
+import sys
+sys.path.insert(0, '/opt')
+from tests.test_site_split import *
+import inspect
+passed = 0
+failed = 0
+for name, fn in [
+    ('all pages exist', test_all_pages_exist),
+    ('navigation', test_navigation_consistent),
+    ('modals', test_modals_present),
+    ('news page', test_news_page),
+    ('schedule page', test_schedule_page),
+    ('results page', test_results_page),
+    ('index redirect', test_index_redirect),
+]:
+    try:
+        fn()
+        passed += 1
+    except Exception as e:
+        print(f'❌ {name}: {e}')
+        failed += 1
+print(f'\nDeploy tests: {passed} passed, {failed} failed')
+if failed:
+    exit(1)
+"
+            echo ""
+            echo "=== Nginx reload ==="
+            systemctl reload nginx 2>/dev/null || nginx -s reload 2>/dev/null || echo "nginx reload skipped"
+            echo "=== Deploy complete ==="
