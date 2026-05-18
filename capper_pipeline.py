@@ -1,0 +1,753 @@
+#!/usr/bin/env python3
+"""
+Capper — каперский скилл. Сбор данных + прогноз.
+Режимы:
+  --match "Ком1" "Ком2" [league_key]  — один матч (как было)
+  --batch                              — все матчи из upcoming_matches.json
+  --refresh                            — обновить прогнозы для матчей <= 1ч (составы)
+
+Сохраняет: /opt/predictions_data.json
+"""
+
+import json, sys, os, re, time as time_module
+from datetime import datetime, timedelta, timezone
+import random
+import requests
+from playwright.sync_api import sync_playwright
+
+# ─── НАСТРОЙКИ ────────────────────────────────────────────────────────
+SSTATS_KEY = os.environ.get('SSTATS_KEY', '')
+if not SSTATS_KEY:
+    try:
+        with open('/etc/sstats.key') as f:
+            SSTATS_KEY = f.read().strip()
+    except: pass
+SSTATS = 'https://api.sstats.net'
+
+DEEPSEEK_KEY = ''
+try:
+    with open('/etc/deepseek.key') as f:
+        DEEPSEEK_KEY = f.read().strip()
+except: pass
+
+# ID лиг в SStats
+LS = {'rpl': 235, 'epl': 39, 'laliga': 140, 'seriea': 135, 'bundesliga': 78, 'ligue1': 61}
+
+# Пути flashscore
+FS_PATHS = {'rpl': '/football/russia/premier-league/', 'epl': '/football/england/premier-league/',
+    'laliga': '/football/spain/laliga/', 'seriea': '/football/italy/serie-a/',
+    'bundesliga': '/football/germany/bundesliga/', 'ligue1': '/football/france/ligue-1/'}
+
+# Активные лиги для прогнозов
+_PRED_LEAGUES = {}
+try:
+    with open('/opt/prediction_leagues.json') as f:
+        _PRED_LEAGUES = json.load(f).get('active', {})
+except: pass
+
+MOW = timedelta(hours=3)
+UTC = timezone.utc
+
+
+# ═══════════════════ SStats API ═══════════════════
+
+def sq(endpoint, params=None):
+    p = {'apikey': SSTATS_KEY}
+    if params: p.update(params)
+    try:
+        r = requests.get(f'{SSTATS}{endpoint}', params=p, timeout=15)
+        return r.json()
+    except: return None
+
+
+def fetch_sstats(game_id):
+    """Собрать SStats данные по game_id: кэфы, Glicko, травмы, статистику."""
+    result = {'game_id': game_id}
+    
+    # Детали игры
+    games = sq('/Games/list', {'Id': game_id})
+    if not games:
+        return result
+    data = games.get('data', []) if isinstance(games, dict) else (games if isinstance(games, list) else [])
+    game = data[0] if data else None
+    if not game:
+        return result
+    
+    result['home'] = game.get('homeTeam', {}).get('name', '?')
+    result['away'] = game.get('awayTeam', {}).get('name', '?')
+    result['date'] = game.get('date', '')
+    result['flashId'] = game.get('flashId', '')
+    
+    # Коэффициенты (из Games/list — структура [{marketId, odds: [{name, value}]}])
+    odds_raw = game.get('odds', [])
+    if isinstance(odds_raw, dict): odds_raw = list(odds_raw.values())
+    result['odds'] = []
+    result['totals'] = {}
+    for market in (odds_raw if isinstance(odds_raw, list) else []):
+        if not isinstance(market, dict): continue
+        mo = market.get('odds', [])
+        if not isinstance(mo, list): continue
+        vals = {}
+        for o in mo:
+            if isinstance(o, dict):
+                n = str(o.get('name', '')).lower()
+                v = o.get('value')
+                if v is not None:
+                    if n == 'home': vals['home'] = float(v)
+                    elif n == 'away': vals['away'] = float(v)
+                    elif n == 'draw': vals['draw'] = float(v)
+                    elif n.startswith('over'): 
+                        vals['over'] = float(v)
+                        import re as _re
+                        m = _re.search(r'[\d.]+', o.get('name', ''))
+                        if m:
+                            vals['total_line'] = float(m.group())
+                        vals['type'] = 'total'
+                    elif n.startswith('under'): 
+                        vals['under'] = float(v)
+                        vals['type'] = 'total'
+        if 'type' in vals and 'over' in vals and 'under' in vals:
+            tl = vals.get('total_line', 0)
+            # Приоритет: 2.5 > 3.5 > 0.5 (наиболее релевантный тотал)
+            current_tl = result['totals'].get('total_line', 0)
+            if tl in (2.5, 3.5) or (current_tl == 0):
+                result['totals']['total_line'] = tl
+                result['totals']['over'] = vals['over']
+                result['totals']['under'] = vals['under']
+        elif len(vals) == 3 and 'home' in vals and 'away' in vals and 'draw' in vals:
+            if not result['odds']:
+                result['odds'].append(vals)  # берём первый полный market (1X2)
+    
+    # Glicko
+    gl = sq('/Games/glicko/' + str(game_id))
+    if isinstance(gl, dict):
+        gd = gl.get('data', {})
+        glicko = gd.get('glicko', {}) if isinstance(gd, dict) else gl.get('glicko', {})
+        if isinstance(glicko, dict) and glicko.get('homeWinProbability'):
+            result['glicko'] = {
+                'home_prob': glicko['homeWinProbability'],
+                'away_prob': glicko['awayWinProbability'],
+                'draw_prob': max(0, 1.0 - glicko['homeWinProbability'] - glicko['awayWinProbability']),
+                'home_rating': glicko.get('homeRating', 0),
+                'away_rating': glicko.get('awayRating', 0),
+                'home_xg': glicko.get('homeXg', 0),
+                'away_xg': glicko.get('awayXg', 0),
+            }
+    
+    # Травмы
+    inj = sq('/Games/injuries', {'gameId': game_id})
+    if isinstance(inj, list): result['injuries'] = inj
+    elif isinstance(inj, dict) and 'data' in inj: result['injuries'] = inj['data']
+    
+    # Статистика команд (форма)
+    stats = sq('/Games/last-games-stats', {'gameId': game_id})
+    if isinstance(stats, dict): result['stats'] = stats
+    
+    return result
+
+
+# ═══════════════════ Flashscore ═══════════════════
+
+def fetch_lineups_flashscore(flash_id):
+    """Парсит стартовые составы с Flashscore по flashId SStats."""
+    url = f'https://www.flashscore.com/match/{flash_id}/#/match-summary/lineups'
+    try:
+        with sync_playwright() as p:
+            b = p.chromium.launch(headless=True, args=['--no-sandbox'])
+            page = b.new_page(viewport={'width': 1920, 'height': 1080})
+            page.set_default_timeout(20000)
+            page.goto(url, wait_until='domcontentloaded', timeout=20000)
+            page.wait_for_timeout(5000)
+            text = page.evaluate('() => document.body.innerText')
+            b.close()
+    except:
+        return None
+
+    if 'LINEUPS' not in text and 'СОСТАВ' not in text and 'STARTING' not in text:
+        return None
+
+    lines = text.split('\n')
+    result = {'home': [], 'away': [], 'formation_home': '', 'formation_away': '', 'bench_home': [], 'bench_away': []}
+    section, side = None, None
+
+    for i, l in enumerate(lines):
+        l = l.strip()
+        if l in ('LINEUPS', 'СОСТАВ', 'STARTING LINEUPS'):
+            section = 'lineups'; continue
+        if l in ('SUBSTITUTES', 'ЗАПАСНЫЕ', 'BENCH'):
+            section = 'bench'; continue
+        if l in ('HOME', 'ДОМА', 'ХОЗЯЕВА'):
+            side = 'home'
+            if i+1 < len(lines) and re.match(r'^\d{1,2}-\d{1,2}-\d{1,2}', lines[i+1].strip()):
+                result['formation_home'] = lines[i+1].strip()
+            continue
+        if l in ('AWAY', 'ГОСТИ', 'В ГОСТЯХ'):
+            side = 'away'
+            if i+1 < len(lines) and re.match(r'^\d{1,2}-\d{1,2}-\d{1,2}', lines[i+1].strip()):
+                result['formation_away'] = lines[i+1].strip()
+            continue
+
+        if not side or not l or len(l) < 2: continue
+        if re.match(r'^\d{1,2}-\d{1,2}-\d{1,2}', l): continue
+        if l in ('?', 'LINEUPS NOT AVAILABLE', 'СОСТАВЫ НЕ ДОСТУПНЫ', 'SUBSTITUTES',
+                 'ЗАПАСНЫЕ', 'BENCH', 'HOME', 'AWAY', 'ДОМА', 'ГОСТИ'): continue
+
+        if section == 'lineups':
+            result.setdefault(side, []).append(l)
+        elif section == 'bench':
+            result.setdefault(f'bench_{side}', []).append(l)
+
+    if result['home'] or result['away']:
+        return result
+    return None
+
+
+def find_match_flashscore(team1, team2, league_key=None):
+    """Поиск матча на Flashscore."""
+    urls = ['https://www.flashscore.com/']
+    if league_key in FS_PATHS:
+        urls.insert(0, 'https://www.flashscore.com' + FS_PATHS[league_key])
+
+    t1l, t2l = team1.lower(), team2.lower()
+    p1 = [w for w in t1l.split() if len(w) > 2] or [t1l]
+    p2 = [w for w in t2l.split() if len(w) > 2] or [t2l]
+
+    for url in urls:
+        try:
+            with sync_playwright() as p:
+                b = p.chromium.launch(headless=True, args=['--no-sandbox'])
+                page = b.new_page(viewport={'width': 1920, 'height': 1080})
+                page.set_default_timeout(20000)
+                page.goto(url, wait_until='domcontentloaded', timeout=20000)
+                page.wait_for_timeout(5000)
+                page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+                page.wait_for_timeout(3000)
+                found = page.evaluate('''(d) => {
+                    const [t1l, t2l, p1, p2] = d;
+                    for (const r of document.querySelectorAll('.event__match')) {
+                        const h = r.querySelector('.event__homeParticipant');
+                        const a = r.querySelector('.event__awayParticipant');
+                        const l = r.querySelector('a[href*="/match/"]');
+                        if (!h || !a || !l) continue;
+                        const hh = h.textContent.trim().toLowerCase(), aa = a.textContent.trim().toLowerCase();
+                        if ((p1.every(w => hh.includes(w)) && p2.every(w => aa.includes(w))) ||
+                            (p2.every(w => hh.includes(w)) && p1.every(w => aa.includes(w)))) {
+                            const hr = l.getAttribute('href') || '';
+                            return {team1: h.textContent.trim(), team2: a.textContent.trim(),
+                                    url: hr.startsWith('http') ? hr : 'https://www.flashscore.com' + hr};
+                        }
+                    }
+                    return null;
+                }''', [t1l, t2l, p1, p2])
+                b.close()
+                if found: return found
+        except:
+            continue
+    return None
+
+
+def parse_match_flashscore(url):
+    """Парсит Flashscore: стадион, судья, форма, H2H, таблица."""
+    data = {'info': {}, 'form': {}, 'h2h': [], 'standings': []}
+    try:
+        with sync_playwright() as p:
+            b = p.chromium.launch(headless=True, args=['--no-sandbox'])
+            page = b.new_page(viewport={'width': 1920, 'height': 1080})
+            page.set_default_timeout(20000)
+            page.goto(url, wait_until='domcontentloaded', timeout=20000)
+            page.wait_for_timeout(6000)
+            r = page.evaluate('''() => {
+                const L = document.body.innerText.split('\\n');
+                const info = {}, form = {}, h2h = [];
+                for (let i = 0; i < L.length; i++) {
+                    const l = L[i].trim();
+                    if (l.startsWith('REFEREE')) info.referee = l.replace(/REFEREE[\\s:]+/, '').trim();
+                    if (l.startsWith('STADIUM')) info.venue = l.replace(/STADIUM[\\s:]+/, '').trim();
+                }
+                let fi = L.findIndex(l => l.trim() === 'FORM');
+                if (fi >= 0) {
+                    let team = null, reading = false;
+                    for (let i = fi + 1; i < Math.min(fi + 40, L.length); i++) {
+                        const l = L[i].trim();
+                        if (['TABLE', 'HEAD TO HEAD'].includes(l)) break;
+                        if (/^\\d+\\.$/.test(l)) { team = null; reading = false; continue; }
+                        if (l === '?') { reading = true; continue; }
+                        if (!team && l.length > 2 && !/^[?.\\-\\s]+$/.test(l) && l !== 'FORM') {
+                            team = l; form[team] = []; reading = false; continue;
+                        }
+                        if (reading && team && ['W','D','L'].includes(l)) form[team].push(l);
+                        if (reading && team && !['W','D','L'].includes(l)) reading = false;
+                    }
+                }
+                let hi = L.findIndex(l => l.trim() === 'HEAD TO HEAD');
+                if (hi >= 0) {
+                    for (let i = hi + 1; i < Math.min(hi + 40, L.length); i++) {
+                        const l = L[i].trim();
+                        if (!l || ['TABLE','FORM'].includes(l)) break;
+                        if (!/^\\d{2}\\.\\d{2}\\.\\d{2,4}$/.test(l)) continue;
+                        const entry = {date: l, team1: '', team2: '', score: ''};
+                        const after = [];
+                        for (let j = i + 1; j < Math.min(i + 8, L.length); j++) {
+                            const n = L[j].trim();
+                            if (!n || /^\\d{2}\\.\\d{2}\\.\\d{2,4}$/.test(n) ||
+                                ['TABLE','FORM','HEAD TO HEAD'].includes(n)) break;
+                            after.push(n);
+                        }
+                        const names = after.filter(x => x.length > 3 && !/^\\d+$/.test(x) && x !== '?' && x !== 'Show');
+                        if (names.length >= 2) { entry.team1 = names[0]; entry.team2 = names[1]; }
+                        const nums = after.filter(x => /^\\d{1,2}$/.test(x) && parseInt(x) <= 15);
+                        if (nums.length >= 2) entry.score = nums[0] + ':' + nums[1];
+                        h2h.push(entry);
+                    }
+                }
+                let si = L.findIndex(l => l.trim() === 'TABLE');
+                const st = [];
+                if (si >= 0) {
+                    let cur = null;
+                    for (let i = si + 1; i < Math.min(si + 300, L.length); i++) {
+                        const l = L[i].trim();
+                        if (!l || ['#','TEAM','P','W','D','L','F','A','GD','PTS','FORM'].includes(l)) continue;
+                        if (l.startsWith('Follow') || l === 'FOOTBALL') break;
+                        if (/^\\d{1,2}\\.$/.test(l)) {
+                            if (cur) st.push(cur); if (st.length >= 16) break;
+                            cur = {pos: l.replace('.',''), name: '', p: '', w:'', d:'', l:'', f:'', gd:'', pts:'', form:[]};
+                            continue;
+                        }
+                        if (!cur) continue;
+                        if (!cur.name && l.length > 2 && !/^[.\\-?\\d]+$/.test(l)) { cur.name = l; continue; }
+                        if (cur.name && /^\\d{1,2}$/.test(l)) {
+                            if (!cur.p) { cur.p = l; continue; }
+                            if (!cur.w) { cur.w = l; continue; }
+                            if (!cur.d) { cur.d = l; continue; }
+                            if (!cur.l) { cur.l = l; continue; }
+                        }
+                        if (cur.p && cur.w && cur.d && cur.l && /^\\d+:\\d+$/.test(l)) { cur.f = l; continue; }
+                        if (cur.f && /^-?\\d{1,3}$/.test(l) && !cur.gd) { cur.gd = l; continue; }
+                        if (cur.gd && /^\\d{1,3}$/.test(l) && !cur.pts) { cur.pts = l; continue; }
+                        if (cur.pts && ['W','D','L'].includes(l)) cur.form.push(l);
+                    }
+                    if (cur) st.push(cur);
+                }
+                return {info, form, h2h, standings: st};
+            }''')
+            data = {k: r[k] for k in data}
+            b.close()
+    except:
+        pass
+    return data
+
+
+# ═══════════════════ DeepSeek + Humanizer ═══════════════════
+
+def generate_prediction_text(match_info, sstats_data, fs_data, lineups=None):
+    """Сформировать текст прогноза через DeepSeek."""
+    if not DEEPSEEK_KEY:
+        return _fallback_prediction(sstats_data)
+
+    # Собираем промпт
+    parts = [f'Матч: {match_info.get("home", "?")} — {match_info.get("away", "?")}']
+    parts.append(f'Лига: {match_info.get("league", "?")}')
+    parts.append(f'Дата: {match_info.get("date", "?")}')
+
+    # Glicko
+    g = sstats_data.get('glicko', {})
+    if g:
+        parts.append(f'\nGlicko рейтинг:\n  {match_info.get("home","?")}: рейтинг {g.get("home_rating","?")}, вероятность {g.get("home_prob",0)*100:.0f}%, xG {g.get("home_xg",0):.2f}')
+        parts.append(f'  {match_info.get("away","?")}: рейтинг {g.get("away_rating","?")}, вероятность {g.get("away_prob",0)*100:.0f}%, xG {g.get("away_xg",0):.2f}')
+        parts.append(f'  Ничья: {g.get("draw_prob",0)*100:.0f}%')
+
+    # Коэффициенты
+    odds = sstats_data.get('odds', [])
+    if odds:
+        o = odds[0]
+        avg_h = sum(o['home'] for o in odds[:3]) / max(len(odds[:3]), 1) if isinstance(odds, list) else o.get('home', 0)
+        parts.append(f'\nКоэффициенты: 1) {o.get("home","?")} X) {o.get("draw","?")} 2) {o.get("away","?")}')
+
+    # Форма
+    fs_form = fs_data.get('form', {})
+    if fs_form:
+        for team_name, form_list in fs_form.items():
+            if form_list:
+                parts.append(f'{team_name}: форма {" ".join(form_list)}')
+
+    # H2H
+    h2h = fs_data.get('h2h', [])
+    if h2h:
+        parts.append('\nОчные встречи:')
+        for h in h2h[:5]:
+            parts.append(f'  {h.get("date","")}: {h.get("team1","")} — {h.get("team2","")} {h.get("score","")}')
+
+    # Таблица
+    st = fs_data.get('standings', [])
+    if st:
+        parts.append('\nТурнирная таблица (топ-5):')
+        for s in st[:5]:
+            if s.get('pts'):
+                parts.append(f'  {s["pos"]}. {s["name"]} — {s["pts"]} оч.')
+
+    # Стадион, судья
+    info = fs_data.get('info', {})
+    if info.get('venue'): parts.append(f'\nСтадион: {info["venue"]}')
+    if info.get('referee'): parts.append(f'Судья: {info["referee"]}')
+
+    # Травмы
+    inj = sstats_data.get('injuries', [])
+    if inj:
+        parts.append('\nТравмы:')
+        for i in inj[:5]:
+            p = i.get('player', {})
+            name = p.get('name', '?') if isinstance(p, dict) else str(p)
+            team = i.get('teamName', '')
+            reason = i.get('reason', '')
+            parts.append(f'  {team}: {name} ({reason})')
+
+    # Составы (если есть)
+    if lineups:
+        parts.append(f'\nСтартовые составы:')
+        if lineups.get('formation_home'): parts.append(f'{match_info.get("home","?")} ({lineups["formation_home"]}):')
+        for p in lineups.get('home', []):
+            parts.append(f'  • {p}')
+        if lineups.get('formation_away'): parts.append(f'{match_info.get("away","?")} ({lineups["formation_away"]}):')
+        for p in lineups.get('away', []):
+            parts.append(f'  • {p}')
+        if lineups.get('bench_home'):
+            parts.append(f'Запасные ({match_info.get("home","?")}): {", ".join(lineups["bench_home"][:5])}')
+        if lineups.get('bench_away'):
+            parts.append(f'Запасные ({match_info.get("away","?")}): {", ".join(lineups["bench_away"][:5])}')
+
+    prompt = '\n'.join(parts)
+    # Добавляем тоталы в промпт
+    if sstats_data.get('totals') and sstats_data['totals'].get('over'):
+        line = sstats_data['totals'].get('total_line', 2.5)
+        parts.append(f'\nТотал {line}: Over {sstats_data['totals']['over']}, Under {sstats_data['totals']['under']}')
+
+    prompt = '\n'.join(parts)
+        # Добавляем тоталы в промпт
+    if sstats_data.get('totals') and sstats_data['totals'].get('over'):
+        tl = sstats_data['totals'].get('total_line', 2.5)
+        parts.append(f'\nТотал {tl}: Over {sstats_data["totals"]["over"]}, Under {sstats_data["totals"]["under"]}')
+
+    prompt = '\n'.join(parts)
+    prompt += '\n\nНапиши прогноз живым человеческим языком, как обсуждаешь матч с другом. Без шаблонов, списков и заголовков. Каждый раз начинай по-разному: вопросом, неожиданным фактом, цифрой, интригой, сравнением. В конце укажи вердикт на исход и отдельно на тотал (с аргументацией).' 
+
+    try:
+        resp = requests.post('https://api.deepseek.com/v1/chat/completions', json={
+            'model': 'deepseek-chat',
+            'messages': [
+                {'role': 'system', 'content': 'Ты спортивный аналитик с ярким стилем. Пиши прогноз как человек, а не как отчёт. Без списков, заголовков, приветствий и жирного текста. Каждый прогноз начинай уникально: вопросом, цифрой, интригой, сочной цитатой, историей — не повторяйся. В конце чёткий вердикт.'},
+                {'role': 'user', 'content': prompt}
+            ],
+            'temperature': 0.65,
+            'max_tokens': 1500
+        }, headers={'Authorization': f'Bearer {DEEPSEEK_KEY}'}, timeout=30)
+        data = resp.json()
+        if 'choices' in data and len(data['choices']) > 0:
+            text = data['choices'][0]['message']['content'].strip()
+            # Заменяем тотал на ТБ/ТМ
+            text = text.replace('Over', 'ТБ').replace('Under', 'ТМ')
+            text = text.replace('over', 'ТБ').replace('under', 'ТМ')
+            text = text.replace('тотал больше', 'ТБ').replace('тотал меньше', 'ТМ')
+            text = text.replace('Тотал больше', 'ТБ').replace('Тотал меньше', 'ТМ')
+            text = text.replace('тотал', 'тотал').replace('Тотал', 'Тотал')
+            text = _diversify_opening(text)
+            return text
+    except:
+        pass
+    return _fallback_prediction(sstats_data)
+
+
+def _fallback_prediction(sstats_data):
+    """Запасной прогноз на основе цифр."""
+    odds = sstats_data.get('odds', [])
+    if not odds:
+        return 'Недостаточно данных для прогноза'
+    o = odds[0]
+    margin = 1/o['home'] + 1/o['draw'] + 1/o['away']
+    hp = (1/o['home']) / margin * 100
+    ap = (1/o['away']) / margin * 100
+    if hp > ap:
+        return f'Фаворит — хозяева ({hp:.0f}%). Кэф: {o["home"]}.'
+    else:
+        return f'Фаворит — гости ({ap:.0f}%). Кэф: {o["away"]}.'
+
+
+# ═══════════════════ Process match ═══════════════════
+
+def process_match(match_info, fetch_fs=True, fetch_lineups_flag=False, pw_page=None):
+    """
+    Полный цикл прогноза для одного матча.
+    match_info: {home, away, league, time, game_id, ...}
+    pw_page: переиспользуемый Playwright page (или None).
+    Возвращает dict с прогнозом или None.
+    """
+    home = match_info.get('home', '')
+    away = match_info.get('away', '')
+    league = match_info.get('league', '')
+    game_id = match_info.get('game_id')
+
+    print(f'  🔮 {home} — {away}... ', end='', flush=True)
+
+    # 1. SStats
+    if game_id:
+        ss = fetch_sstats(game_id)
+    else:
+        print('❌ нет game_id')
+        return None
+
+    if not ss.get('odds') and not ss.get('glicko'):
+        print('❌ нет данных SStats')
+        return None
+
+    # 2. Flashscore (форма, H2H, таблица)
+    fs_data = {'info': {}, 'form': {}, 'h2h': [], 'standings': []}
+    if fetch_fs:
+        try:
+            if ss.get('flashId'):
+                fs_url = f'https://www.flashscore.com/match/{ss["flashId"]}/#/match-summary'
+                fs_data = parse_match_flashscore(fs_url)
+            else:
+                fs_match = find_match_flashscore(home, away, league)
+                if fs_match:
+                    fs_data = parse_match_flashscore(fs_match['url'])
+        except:
+            pass
+
+    # 3. Составы (если нужно)
+    lineups = None
+    if fetch_lineups_flag and ss.get('flashId'):
+        lineups = fetch_lineups_flashscore(ss['flashId'])
+        if lineups:
+            print(f'составы ✅... ', flush=True)
+
+    # 4. DeepSeek прогноз
+    match_info_full = {**match_info, 'home': match_info.get('home', home), 'away': match_info.get('away', away), 'home_en': ss.get('home', home), 'away_en': ss.get('away', away)}
+    pred_text = generate_prediction_text(match_info_full, ss, fs_data, lineups)
+
+    print(f'✅')
+    return {
+        'home': match_info.get('home', home),
+        'away': match_info.get('away', away),
+        'league': league,
+        'time': match_info.get('time', ''),
+        'game_id': game_id,
+        'verdict': pred_text.split('.')[0] if '.' in pred_text else pred_text[:80],
+        'prediction': pred_text,
+        'odds': {'home': round(ss['odds'][0]['home'], 2), 'draw': round(ss['odds'][0]['draw'], 2), 'away': round(ss['odds'][0]['away'], 2)} if ss.get('odds') else None,
+        'totals': ss.get('totals', {}),
+        'glicko': ss.get('glicko'),
+        'has_lineups': bool(lineups),
+        'generated_at': datetime.now().isoformat(),
+    }
+
+
+# ═══════════════════ Batch modes ═══════════════════
+
+def _load_matches():
+    """Загрузить матчи для прогнозов: сначала upcoming_matches.json,
+    потом fallback на tv_channels_data.json (футбол + game_id)."""
+    active = set(_PRED_LEAGUES.keys())
+
+    # Пробуем upcoming_matches.json (приоритет)
+    path = '/tmp/upcoming_matches.json'
+    if os.path.exists(path):
+        with open(path, encoding='utf-8') as f:
+            data = json.load(f)
+        matches = data.get('matches', [])
+        matches = [m for m in matches if m.get('league') in active]
+        if matches:
+            print(f'📖 upcoming_matches.json: {len(matches)} матчей')
+            return matches
+
+    # Fallback: tv_channels_data.json
+    path = '/tmp/tv_channels_data.json'
+    if os.path.exists(path):
+        with open(path, encoding='utf-8') as f:
+            data = json.load(f)
+        matches = []
+        for m in data.get('matches', []):
+            if m.get('sport') == 'football' and m.get('league') in active and m.get('game_id'):
+                matches.append({
+                    'home': m['home'],
+                    'away': m['away'],
+                    'time': m.get('time', ''),
+                    'game_id': m['game_id'],
+                    'league': m['league'],
+                })
+        if matches:
+            print(f'📖 tv_channels_data.json: {len(matches)} матчей (fallback)')
+            return matches
+
+    print('❌ Нет матчей для прогнозов (upcoming_matches.json + tv_channels_data.json пусты)')
+    return []
+
+
+def batch_generate():
+    """Полная генерация прогнозов на все матчи."""
+    matches = _load_matches()
+
+    if not matches:
+        _save_predictions([])
+        return
+
+    print(f'📊 Прогнозов: {len(matches)}')
+    predictions = []
+    for i, m in enumerate(matches):
+        pred = process_match(m, fetch_fs=True, fetch_lineups_flag=False)
+        if pred:
+            predictions.append(pred)
+        # Сохраняем инкрементально после каждых 3 матчей
+        if i % 3 == 2 or i == len(matches) - 1:
+            _save_predictions(predictions)
+            print(f'  💾 сохранено {len(predictions)}/{len(matches)}')
+
+    print(f'\n✅ Всего: {len(predictions)} прогнозов')
+
+
+def batch_refresh():
+    """Обновить прогнозы для матчей, до которых <= 1 час."""
+    now = datetime.now(UTC) + MOW
+    path = '/tmp/upcoming_matches.json'
+    if not os.path.exists(path):
+        return
+
+    with open(path, encoding='utf-8') as f:
+        data = json.load(f)
+    matches = data.get('matches', [])
+    active = set(_PRED_LEAGUES.keys())
+    matches = [m for m in matches if m.get('league') in active]
+
+    # Загружаем текущие прогнозы
+    existing = {}
+    pred_path = '/opt/predictions_data.json'
+    if os.path.exists(pred_path):
+        try:
+            with open(pred_path) as f:
+                for p in json.load(f).get('predictions', []):
+                    existing[(p.get('league',''), p.get('home',''), p.get('away',''))] = p
+        except: pass
+
+    refreshed = []
+    for m in matches:
+        # Парсим время матча
+        try:
+            match_time_str = m.get('time', '')
+            match_hour, match_min = map(int, match_time_str.split(':'))
+            match_dt = now.replace(hour=match_hour, minute=match_min, second=0)
+            if match_dt < now:
+                match_dt += timedelta(days=1)
+        except:
+            continue
+
+        diff = (match_dt - now).total_seconds()
+        if 0 < diff < 3900:  # ~1 час 5 минут
+            print(f'⏰ {m["home"]} — {m["away"]} через {int(diff/60)} мин, обновляю...')
+            pred = process_match(m, fetch_fs=True, fetch_lineups_flag=True)
+            if pred:
+                refreshed.append(pred)
+                key = (m.get('league',''), m.get('home',''), m.get('away',''))
+                existing[key] = pred
+
+    if refreshed:
+        _save_predictions(list(existing.values()))
+        print(f'✅ Обновлено: {len(refreshed)} прогнозов')
+
+
+
+def _diversify_opening(text):
+    """Заменить однотипное начало на случайное, если модель не справилась."""
+    import random
+    starters = [
+        'А вот что интересно: ', 'По цифрам вырисовывается такая картина: ',
+        'Если смотреть по статистике: ', 'Ключевой момент матча: ',
+        'Расклад такой: ', 'Давай разберём: ',
+        'Судя по данным: ', 'Интрига вот в чём: ',
+        'Главный вопрос матча: ', 'Что говорят цифры: ',
+        'Мой анализ показывает: ', 'В этом матче: ',
+        'Обрати внимание: ', 'Коротко по делу: ',
+        'Ситуация такая: ', 'Если честно: ',
+    ]
+    for old in ['Смотри, ', 'Смотри,', 'Слушай, ', 'Слушай,', 'Ну, ', 'Ну и ', 'Так, ', 'Так,']:
+        if text.startswith(old):
+            replacement = random.choice(starters)
+            rest = text[len(old):].lstrip()
+            # Capitalize first letter
+            if rest and rest[0].islower():
+                rest = rest[0].upper() + rest[1:]
+            return replacement + rest
+    return text
+
+def _make_match_key(pred):
+    """Ключ для дедупликации: лига||home||away"""
+    return f"{pred.get('league','')}||{pred.get('home','')}||{pred.get('away','')}"
+
+
+def _save_predictions(new_predictions):
+    """Добавить прогнозы в predictions_data.json (очередь).
+    Не перезаписывает существующие — только добавляет новые.
+    Дедупликация по (league, home, away).
+    """
+    # Отфильтровать None
+    new_predictions = [p for p in new_predictions if p]
+    if not new_predictions:
+        return
+
+    # Загружаем существующую очередь
+    existing = {}
+    pred_path = '/opt/predictions_data.json'
+    if os.path.exists(pred_path):
+        try:
+            with open(pred_path, encoding='utf-8') as f:
+                for p in json.load(f).get('predictions', []):
+                    existing[_make_match_key(p)] = p
+        except:
+            pass
+
+    # Добавляем новые (или обновляем существующие по ключу)
+    for p in new_predictions:
+        existing[_make_match_key(p)] = p
+
+    output = {
+        'predictions': list(existing.values()),
+        'count': len(existing),
+        'generated_at': datetime.now().isoformat(),
+    }
+    with open(pred_path, 'w', encoding='utf-8') as f:
+        json.dump(output, f, ensure_ascii=False, indent=2)
+
+
+# ═══════════════════ CLI ═══════════════════
+
+def main():
+    if '--batch' in sys.argv:
+        batch_generate()
+    elif '--refresh' in sys.argv:
+        batch_refresh()
+    elif len(sys.argv) >= 3:
+        # Одиночный матч (старый режим)
+        t1, t2 = sys.argv[1], sys.argv[2]
+        lk = sys.argv[3] if len(sys.argv) > 3 else None
+        match_info = {'home': t1, 'away': t2, 'league': lk or '?', 'time': '?', 'game_id': None}
+
+        # Ищем game_id по названиям
+        print(f'📡 Поиск матча: {t1} — {t2}', file=sys.stderr)
+        lid = LS.get(lk, 235) if lk else 235
+        data = sq('/Games/list', {'LeagueId': lid, 'Year': 2025, 'take': 200})
+        games = data if isinstance(data, list) else data.get('data', [])
+        for g in games:
+            ht = str(g.get('homeTeam', {}).get('name', '')).lower()
+            at = str(g.get('awayTeam', {}).get('name', '')).lower()
+            if t1.lower() in ht and t2.lower() in at:
+                match_info['game_id'] = g.get('id')
+                break
+
+        pred = process_match(match_info, fetch_fs=True, fetch_lineups_flag=True)
+        if pred:
+            print(f'\n=== ПРОГНОЗ ===')
+            print(pred['prediction'])
+            print(f'\n⚡ Сохранено в predictions_data.json')
+    else:
+        print('Режимы: --batch | --refresh | --match "Ком1" "Ком2" [rpl/epl/...]')
+
+
+if __name__ == '__main__':
+    main()
