@@ -122,8 +122,56 @@ def generate_schedule(output_path='/var/www/sport/schedule.html'):
 
     {tv_html}'''
 
+    # JS автообновления live-счетов
+    live_poll_js = '''
+<script>
+// ─── Live score auto-refresh ─────────────────────────────────────
+(function() {
+    setInterval(function() {
+        fetch('/live_scores.json')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var matches = data.matches || {};
+                var cards = document.querySelectorAll('.up-card:not(.finished)');
+                cards.forEach(function(card) {
+                    var key = card.getAttribute('data-match-key');
+                    if (!key) return;
+                    var info = matches[key];
+                    if (!info) return;
+
+                    var scoreEl = card.querySelector('.up-v1-score');
+                    var badgeEl = card.querySelector('.up-v1-live-badge');
+
+                    // Обновляем счёт
+                    if (info.score && scoreEl) {
+                        scoreEl.textContent = info.score;
+                    }
+
+                    // Обновляем статус
+                    if (info.status === 'live') {
+                        if (!badgeEl) {
+                            var right = card.querySelector('.up-v1-right');
+                            if (right) {
+                                var badge = document.createElement('div');
+                                badge.className = 'up-v1-live-badge';
+                                badge.textContent = 'LIVE';
+                                right.insertBefore(badge, right.firstChild);
+                            }
+                        }
+                    } else if (info.status === 'finished') {
+                        card.style.opacity = '0.65';
+                        if (badgeEl) badgeEl.remove();
+                        if (scoreEl) scoreEl.classList.add('finished');
+                    }
+                });
+            })
+            .catch(function() {});
+    }, 30000);
+})();
+</script>'''
+
     html += site_common.page_footer()
-    html = html.replace('JS_PLACEHOLDER', site_common.page_script('{}', pred_json_escaped))
+    html = html.replace('JS_PLACEHOLDER', site_common.page_script('{}', pred_json_escaped) + live_poll_js)
 
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write(html)
