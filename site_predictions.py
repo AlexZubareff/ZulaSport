@@ -77,9 +77,9 @@ def _card(pred):
             <div class="up-v1-time">{escape(time_str)}</div>
         </div>
     </div>
-</div>
-<button class="p-btn" onclick="toggleTxt('{cid}')" id="b-{cid}">Показать прогноз</button>
-<div class="p-txt" id="{cid}" style="display:none">{html_mod.escape(text)}</div>'''
+    <button class="p-btn" onclick="toggleTxt('{cid}')" id="b-{cid}">Показать прогноз</button>
+    <div class="p-txt" id="{cid}" style="display:none">{html_mod.escape(text)}</div>
+</div>'''
 
     return html
 
