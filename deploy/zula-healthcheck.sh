@@ -113,12 +113,14 @@ if [[ -f "$TV_CHANNELS" ]]; then
         ok "tv_channels_data.json свежий (${age_hours}ч)"
     fi
 
-    # Количество матчей
+    # Количество матчей (сумма по всем датам)
     match_count=$(python3 -c "
 import json
 with open('${TV_CHANNELS}') as f:
     d = json.load(f)
-print(len(d.get('matches', [])))
+by_date = d.get('matches_by_date', {})
+total = sum(len(v) for v in by_date.values())
+print(total)
 " 2>/dev/null || echo "0")
     if [[ "$match_count" -lt "$MIN_TV_MATCHES" ]]; then
         alert "Мало матчей" "tv_channels: ${match_count} (мин: ${MIN_TV_MATCHES})"
@@ -127,7 +129,7 @@ print(len(d.get('matches', [])))
         ok "Матчей: ${match_count}"
     fi
 else
-    alert "tv_channels_data.json не найден"
+    alert "tv_channels_data.json не найден" ""
     errors=$((errors + 1))
 fi
 
@@ -176,10 +178,11 @@ if [[ -f "$UPCOMING" ]]; then
 import json
 with open('${UPCOMING}') as f:
     d = json.load(f)
-print(len(d.get('matches', [])))
+    by_date = d.get('matches_by_date', {})
+    print(sum(len(v) for v in by_date.values()))
 " 2>/dev/null || echo "0")
     if [[ "$up_count" -eq 0 ]]; then
-        alert "upcoming_matches.json пуст"
+        alert "upcoming_matches.json пуст" ""
         errors=$((errors + 1))
     else
         ok "Матчей для прогнозов: ${up_count}"
