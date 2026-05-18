@@ -72,7 +72,7 @@ def _card(pred):
                 <span class="up-v1-team-row">{a_logo}<span class="up-v1-name">{away_disp}</span></span>
             </div>
         </div>
-        <div class="pred-mid">{win_label} {total_label}</div>
+        <div class="pred-mid"><div>{win_label} {total_label}</div></div>
         <div class="up-v1-right">
             <div class="up-v1-time">{escape(time_str)}</div>
         </div>
