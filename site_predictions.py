@@ -62,7 +62,7 @@ def _card(pred):
 
     # Карточка: лево (команды) | центр (прогноз) | право (время)
     html = f'''
-<div class="up-card up-card-v1 pred-card">
+<div class="up-card up-card-v1">
     <div class="up-v1-grid">
         <div class="up-v1-left">
             <div class="up-v1-row">
@@ -112,7 +112,7 @@ function toggleTxt(id) {
 </script>'''
 
     html = site_common.page_header('Прогнозы', 'predictions', now_str)
-    html += '<div class="section-title">📈 Активные прогнозы</div>'
+    html += '<div class="section-title">📈 Активные прогнозы <span style="font-size:11px;color:#555">v3</span></div>'
 
     if not preds_by_league:
         html += '<p style="color:#666;font-size:14px">Нет активных прогнозов.</p>'

@@ -198,8 +198,8 @@ a { color: inherit; text-decoration: none; }
     background: linear-gradient(135deg, #1a2a3a, #1a1a1a);
     border: 1px solid #2a3a4a;
 }
-.up-v1-grid { display: flex; gap: 14px; }
-.up-v1-left { flex: 1; min-width: 0; }
+.up-v1-grid { display: flex; gap: 14px; justify-content: space-between; }
+.up-v1-left { min-width: 0; }
 .up-v1-right {
     display: flex; flex-direction: column; align-items: center;
     justify-content: center; gap: 6px; flex-shrink: 0;
@@ -418,12 +418,6 @@ a { color: inherit; text-decoration: none; }
 .percent-away { height: 100%; background: #00bcd4; }
 
 /* Predictions page */
-.pred-card .up-v1-grid {{
-    justify-content: space-between;
-}}
-.pred-card .up-v1-left {{
-    flex: none !important;
-}}
 .pred-mid {{
     display: flex; align-items: center; justify-content: center;
     font-size: 16px; font-weight: 800; color: #fff;
