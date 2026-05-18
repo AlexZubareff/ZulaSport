@@ -418,6 +418,12 @@ a { color: inherit; text-decoration: none; }
 .percent-away { height: 100%; background: #00bcd4; }
 
 /* Predictions page */
+.pred-card .up-v1-grid {{
+    justify-content: space-between;
+}}
+.pred-card .up-v1-left {{
+    flex: none !important;
+}}
 .pred-mid {{
     display: flex; align-items: center; justify-content: center;
     font-size: 16px; font-weight: 800; color: #fff;

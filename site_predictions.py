@@ -62,7 +62,7 @@ def _card(pred):
 
     # Карточка: лево (команды) | центр (прогноз) | право (время)
     html = f'''
-<div class="up-card up-card-v1">
+<div class="up-card up-card-v1 pred-card">
     <div class="up-v1-grid">
         <div class="up-v1-left">
             <div class="up-v1-row">
