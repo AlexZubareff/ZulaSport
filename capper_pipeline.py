@@ -545,39 +545,41 @@ def process_match(match_info, fetch_fs=True, fetch_lineups_flag=False, pw_page=N
 def _load_matches():
     """Загрузить матчи для прогнозов: сначала upcoming_matches.json,
     потом fallback на tv_channels_data.json (футбол + game_id)."""
+    import storage as _st
     active = set(_PRED_LEAGUES.keys())
 
+    def _flatten(path, is_upcoming=False):
+        matches = []
+        by_date = _st.load_by_date(path)
+        for date_str, date_matches in by_date.items():
+            for m in date_matches:
+                if is_upcoming:
+                    if m.get('league') in active:
+                        matches.append(m)
+                else:
+                    if m.get('sport') == 'football' and m.get('league') in active and m.get('game_id'):
+                        matches.append({
+                            'home': m['home'],
+                            'away': m['away'],
+                            'time': m.get('time', ''),
+                            'game_id': m['game_id'],
+                            'league': m['league'],
+                        })
+        return matches
+
     # Пробуем upcoming_matches.json (приоритет)
-    path = '/tmp/upcoming_matches.json'
-    if os.path.exists(path):
-        with open(path, encoding='utf-8') as f:
-            data = json.load(f)
-        matches = data.get('matches', [])
-        matches = [m for m in matches if m.get('league') in active]
-        if matches:
-            print(f'📖 upcoming_matches.json: {len(matches)} матчей')
-            return matches
+    matches = _flatten('/tmp/upcoming_matches.json', is_upcoming=True)
+    if matches:
+        print(f'📖 upcoming_matches.json: {len(matches)} матчей')
+        return matches
 
     # Fallback: tv_channels_data.json
-    path = '/tmp/tv_channels_data.json'
-    if os.path.exists(path):
-        with open(path, encoding='utf-8') as f:
-            data = json.load(f)
-        matches = []
-        for m in data.get('matches', []):
-            if m.get('sport') == 'football' and m.get('league') in active and m.get('game_id'):
-                matches.append({
-                    'home': m['home'],
-                    'away': m['away'],
-                    'time': m.get('time', ''),
-                    'game_id': m['game_id'],
-                    'league': m['league'],
-                })
-        if matches:
-            print(f'📖 tv_channels_data.json: {len(matches)} матчей (fallback)')
-            return matches
+    matches = _flatten('/tmp/tv_channels_data.json')
+    if matches:
+        print(f'📖 tv_channels_data.json: {len(matches)} матчей (fallback)')
+        return matches
 
-    print('❌ Нет матчей для прогнозов (upcoming_matches.json + tv_channels_data.json пусты)')
+    print('❌ Нет матчей для прогнозов')
     return []
 
 

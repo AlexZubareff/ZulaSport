@@ -321,9 +321,9 @@ def collect():
             'channels': [{'country': 'Russia', 'channel': c} for c in ch],
         })
 
-    # ── Сохранение ──────────────────────────────────────────────────
-    with open('/tmp/tv_channels_data.json', 'w', encoding='utf-8') as f:
-        json.dump(result, f, ensure_ascii=False, indent=2)
+    # ── Сохранение (накопительно по датам) ───────────────────────────
+    import storage as _st
+    _st.add_date('/tmp/tv_channels_data.json', date_str, result.get('matches', []))
 
     # ── Сохраняем футбольные матчи для прогнозов ───────────────────
     # Строим обратный маппинг: название лиги → id лиги
@@ -340,11 +340,7 @@ def collect():
                 'league_id': _lid_by_name.get(m['league'], 0),
             })
     try:
-        with open('/tmp/upcoming_matches.json', 'w', encoding='utf-8') as f:
-            json.dump({
-                'date': date_fmt,
-                'matches': pred_matches,
-            }, f, ensure_ascii=False)
+        _st.add_date('/tmp/upcoming_matches.json', date_str, pred_matches)
         print(f'📁 /tmp/upcoming_matches.json ({len(pred_matches)} матчей для прогнозов)')
     except Exception as e:
         print(f'⚠️ Не удалось сохранить upcoming_matches.json: {e}')

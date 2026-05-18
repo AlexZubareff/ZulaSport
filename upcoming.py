@@ -530,8 +530,10 @@ def main():
                         'league': name,
                         'league_id': m['league_id'],
                     })
-        with open('/tmp/upcoming_matches.json', 'w', encoding='utf-8') as _f:
-            json.dump({'date': target_date.strftime('%d.%m.%Y'), 'matches': upcoming_for_preds}, _f, ensure_ascii=False)
+        import storage as _st
+        _st.add_date('/tmp/upcoming_matches.json',
+                     target_date.strftime('%Y%m%d'),
+                     upcoming_for_preds)
         print(f'💾 Сохранено {len(upcoming_for_preds)} матчей для прогнозов в /tmp/upcoming_matches.json')
     except Exception as _e:
         print(f'⚠️ Ошибка сохранения матчей для прогнозов: {_e}')

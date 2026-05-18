@@ -554,57 +554,29 @@ def get_results_text(live_lookup=None):
 # ─── UPCOMING MATCHES ────────────────────────────────────────────────
 def get_upcoming(target_date=None):
     """Предстоящие матчи из JSON (tv_channels + прогнозные матчи).
-    Если target_date указан (строка 'dd.mm.yyyy'), фильтрует матчи по дате файла.
+    Использует накопительное хранилище (storage.py).
     """
+    import storage as _st
     matches = []
-    tv_file = '/tmp/tv_channels_data.json'
-    if os.path.exists(tv_file):
-        try:
-            with open(tv_file) as f:
-                data = json.load(f)
-            src_date = data.get('date', '')
-            # tv_channels date format: 20260515
-            tv_date_ok = False
-            if target_date:
-                tv_target = datetime.strptime(target_date, '%d.%m.%Y').strftime('%Y%m%d')
-                tv_date_ok = (src_date == tv_target)
-            else:
-                tv_date_ok = True
-            if tv_date_ok:
-                matches = data.get('matches', [])
-        except:
-            pass
 
-    # Добавляем футбольные матчи из upcoming (для прогнозов)
-    up_file = '/tmp/upcoming_matches.json'
-    if os.path.exists(up_file):
-        try:
-            with open(up_file) as f:
-                data = json.load(f)
-            src_date = data.get('date', '')
-            # upcoming date format: dd.mm.yyyy
-            up_date_ok = False
-            if target_date:
-                up_date_ok = (src_date == target_date)
-            else:
-                up_date_ok = True
-            if up_date_ok:
-                for m in data.get('matches', []):
-                    dup = False
-                    for existing in matches:
-                        if existing.get('home') == m.get('home') and existing.get('away') == m.get('away'):
-                            dup = True
-                            break
-                    if not dup:
-                        matches.append({
-                            'sport': 'football',
-                            'league': m.get('league', '?'),
-                            'home': m.get('home', '?'),
-                            'away': m.get('away', '?'),
-                            'time': m.get('time', '?'),
-                        })
-        except:
-            pass
+    # 1. Из tv_channels_data.json (все спортивные матчи)
+    tv_matches = _st.get_matches_for_date('/tmp/tv_channels_data.json', target_date or '')
+    matches.extend(tv_matches)
+
+    # 2. Из upcoming_matches.json (футбольные матчи для прогнозов)
+    up_matches = _st.get_matches_for_date('/tmp/upcoming_matches.json', target_date or '')
+    seen_keys = {(m.get('league',''), m.get('home',''), m.get('away','')) for m in matches}
+    for m in up_matches:
+        key = (m.get('league',''), m.get('home',''), m.get('away',''))
+        if key not in seen_keys:
+            seen_keys.add(key)
+            matches.append({
+                'sport': 'football',
+                'league': m.get('league', '?'),
+                'home': m.get('home', '?'),
+                'away': m.get('away', '?'),
+                'time': m.get('time', '?'),
+            })
 
     return matches
 
