@@ -418,29 +418,30 @@ a { color: inherit; text-decoration: none; }
 .percent-away { height: 100%; background: #00bcd4; }
 
 /* Predictions page */
-/* Predictions page — три равные колонки */
+/* Predictions page — три равные колонки через таблицу */
 .pred-card .up-v1-grid {{
-    display: flex !important; align-items: center;
-    justify-content: space-between;
+    display: table !important;
+    width: 100%;
+    table-layout: fixed;
 }}
 .pred-card .up-v1-left,
 .pred-card .pred-center,
 .pred-card .up-v1-right {{
-    flex: 1;
+    display: table-cell !important;
+    vertical-align: middle;
 }}
 .pred-card .up-v1-left {{
-    display: flex !important; flex-direction: column;
-    justify-content: center; text-align: left;
+    text-align: left;
+    width: 42%;
 }}
 .pred-center {{
     font-size: 16px; font-weight: 800; color: #fff;
     text-align: center;
-    display: flex; align-items: center; justify-content: center;
+    width: 28%;
 }}
 .pred-card .up-v1-right {{
-    display: flex !important; flex-direction: column;
-    align-items: center; justify-content: center;
     text-align: center;
+    width: 30%;
 }}
 
 /* Mobile responsive */
