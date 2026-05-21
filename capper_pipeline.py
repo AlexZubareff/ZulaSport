@@ -1154,6 +1154,40 @@ def _run_post_generate_check(predictions, schema_name='predictions_data'):
 # ═══════════════════ CLI ═══════════════════
 
 def main():
+    # ── Единый оркестратор --sport ──
+    if '--sport' in sys.argv:
+        idx = sys.argv.index('--sport')
+        if idx + 1 < len(sys.argv):
+            sport = sys.argv[idx + 1]
+        else:
+            print('❌ Укажи спорт: --sport football|nhl|nba|tennis')
+            return
+
+        mode = 'refresh' if '--refresh' in sys.argv else 'batch'
+
+        sport_modules = {
+            'football': 'modules.sport_football',
+            'nhl':      'modules.sport_nhl',
+            'nba':      'modules.sport_nba',
+            'tennis':   'modules.sport_tennis',
+        }
+
+        if sport not in sport_modules:
+            print(f'❌ Неизвестный спорт: {sport}')
+            print(f'   Доступные: {", ".join(sport_modules.keys())}')
+            return
+
+        print(f'🏁 Оркестратор: {sport} ({mode})')
+        try:
+            mod = __import__(sport_modules[sport], fromlist=['run'])
+            mod.run(mode=mode)
+            report_success(f'capper_pipeline_{sport}')
+        except Exception as e:
+            report_failure(f'capper_pipeline_{sport}', str(e))
+            raise
+        return
+
+    # ── Старые режимы (для обратной совместимости) ──
     if '--batch' in sys.argv:
         batch_generate()
     elif '--refresh' in sys.argv:
@@ -1182,13 +1216,12 @@ def main():
             print(pred['prediction'])
             print(f'\n⚡ Сохранено в predictions_data.json')
     else:
-        print('Режимы: --batch | --refresh | --match "Ком1" "Ком2" [rpl/epl/...]')
+        print('Режимы: --sport football|nhl|nba|tennis [--batch|--refresh]')
+        print('  Или: --batch | --refresh | --match "Ком1" "Ком2" [rpl/epl/...]')
 
 
 if __name__ == '__main__':
     try:
         main()
-        report_success('capper_pipeline')
     except Exception as e:
         report_failure('capper_pipeline', str(e))
-        raise

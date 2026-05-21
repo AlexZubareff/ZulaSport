@@ -1,6 +1,6 @@
 {
   "ratings": {
-    "Colorado Avalanche": 1800,
+    "Colorado Avalanche": 1759.8,
     "Carolina Hurricanes": 1764.0,
     "Dallas Stars": 1757.9,
     "Buffalo Sabres": 1739.6,
@@ -12,7 +12,7 @@
     "Pittsburgh Penguins": 1672.6,
     "Philadelphia Flyers": 1672.6,
     "Washington Capitals": 1654.3,
-    "Vegas Golden Knights": 1654.3,
+    "Vegas Golden Knights": 1694.5,
     "Edmonton Oilers": 1642.1,
     "Utah Mammoth": 1636.0,
     "Detroit Red Wings": 1636.0,
@@ -33,6 +33,9 @@
     "Chicago Blackhawks": 1514.0,
     "Vancouver Canucks": 1428.7
   },
-  "match_count": {},
-  "updated_at": "2026-05-20T20:04:42.383141"
+  "match_count": {
+    "Colorado Avalanche": 1,
+    "Vegas Golden Knights": 1
+  },
+  "updated_at": "2026-05-21T07:37:23.975166"
 }
