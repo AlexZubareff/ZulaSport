@@ -501,6 +501,45 @@ def main():
     except Exception as e:
         print(f'  ⚠️ Ошибка загрузки из БД: {e}')
 
+    # ── Детекция финишировавших матчей ──
+    # Сравниваем с предыдущим состоянием, чтобы не триггерить повторно
+    finished_keys = []
+    prev_matches = {}
+    if os.path.exists(LIVE_PATH):
+        try:
+            with open(LIVE_PATH, encoding='utf-8') as f:
+                prev_data = json.load(f)
+            prev_matches = prev_data.get('matches', {})
+        except:
+            pass
+
+    for key, match in all_matches.items():
+        if match['status'] == 'finished':
+            prev = prev_matches.get(key, {})
+            prev_status = prev.get('status', '')
+            # Матч только что завершился (был live или upcoming — стал finished)
+            if prev_status in ('live', 'upcoming', ''):
+                finished_keys.append(key)
+
+    if finished_keys:
+        print(f'\n🏁 Финишировало матчей: {len(finished_keys)}')
+        try:
+            import subprocess
+            for key in finished_keys:
+                match = all_matches[key]
+                print(f'  ✅ {match["home"]} — {match["away"]} ({match["score"]})')
+            # Запускаем evaluate в фоне
+            subprocess.Popen(
+                ['python3', '/opt/evaluate_predictions.py'],
+                cwd='/opt',
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception as e:
+            print(f'  ⚠️ Ошибка запуска evaluate: {e}')
+    else:
+        print()
+
     output = {
         'updated_at': now.isoformat(),
         'matches': all_matches,
