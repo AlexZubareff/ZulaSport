@@ -179,3 +179,250 @@ def batch_generate_predictions(matches, generate_one_fn, max_workers=3, force_re
             print(f'  ✅ [{i+1}/{len(matches)}] прогноз готов')
 
     return results
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Единый формат прогноза
+# ═══════════════════════════════════════════════════════════════════════
+
+PREDICTION_REQUIRED_FIELDS = {'league', 'home', 'away', 'prediction'}
+PREDICTION_PATH = '/opt/predictions_data.json'
+
+# Проверка доступности БД (один раз)
+_DB_AVAILABLE = False
+try:
+    import db
+    _DB_AVAILABLE = True
+except Exception:
+    _DB_AVAILABLE = False
+
+
+def normalize_prediction(pred: dict) -> dict:
+    """Привести прогноз к единому формату (добавить отсутствующие поля с None)."""
+    norm = dict(pred)
+    for field in PREDICTION_REQUIRED_FIELDS:
+        if field not in norm:
+            raise ValueError(f'Прогнозу не хватает обязательного поля {field}: '
+                             f'{pred.get("home","?")} — {pred.get("away","?")}')
+        if not isinstance(norm[field], str):
+            raise ValueError(f'Поле {field} должно быть str, получено {type(norm[field]).__name__}')
+
+    for opt_field in ('verdict', 'time', 'match_date', 'game_id', 'status',
+                      'odds', 'totals', 'glicko', 'xgb_verdict',
+                      'generated_at', 'has_lineups', 'series', 'surface',
+                      'home_en', 'away_en', 'home_ru', 'away_ru',
+                      'total_line', 'tournament', 'match_id'):
+        if opt_field not in norm:
+            norm[opt_field] = None
+
+    if 'status' not in pred or not pred.get('status'):
+        norm['status'] = 'upcoming'
+
+    if 'generated_at' not in pred or not pred.get('generated_at'):
+        norm['generated_at'] = datetime.now().isoformat()
+
+    return norm
+
+
+def _make_pred_key(pred: dict) -> str:
+    """Ключ для дедупликации: лига||home||away."""
+    return f"{pred.get('league','')}||{pred.get('home','')}||{pred.get('away','')}"
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Единое сохранение (JSON + PostgreSQL)
+# ═══════════════════════════════════════════════════════════════════════
+
+def save_predictions(new_predictions: list, path: str = PREDICTION_PATH):
+    """
+    Сохранить прогнозы: JSON + PostgreSQL.
+    
+    Дедупликация по (league, home, away).
+    Валидация через data_schemas перед записью.
+    
+    Args:
+        new_predictions: список dict прогнозов
+        path: путь к JSON-файлу
+    """
+    # Отфильтровать None
+    new_predictions = [p for p in new_predictions if p]
+    if not new_predictions:
+        return
+
+    # Нормализация
+    normalized = []
+    for p in new_predictions:
+        try:
+            normalized.append(normalize_prediction(p))
+        except ValueError as e:
+            print(f'  ⚠️ {e}')
+            continue
+
+    # Если все прогнозы не прошли нормализацию — ничего не пишем
+    if not normalized:
+        return
+
+    # JSON — дедупликация с существующими
+    existing = {}
+    if os.path.exists(path):
+        try:
+            with open(path, encoding='utf-8') as f:
+                for p in json.load(f).get('predictions', []):
+                    existing[_make_pred_key(p)] = p
+        except:
+            pass
+
+    for p in normalized:
+        existing[_make_pred_key(p)] = p
+
+    # Если после дедупликации всё ещё пусто — не пишем
+    if not existing:
+        return
+
+    output = {
+        'predictions': list(existing.values()),
+        'count': len(existing),
+        'generated_at': datetime.now().isoformat(),
+    }
+
+    # Валидация
+    ok, errors = validate(output, 'predictions_data')
+    if not ok and output['predictions']:
+        print(f'  ⚠️ save_predictions: {len(errors)} ошибок схемы (пишем всё равно)')
+        for e in errors[:3]:
+            print(f'    - {e}')
+
+    # Атомарная запись
+    tmp = path + '.tmp'
+    try:
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(output, f, ensure_ascii=False, indent=2)
+        os.rename(tmp, path)
+    except Exception as e:
+        print(f'  ❌ save_predictions JSON: {e}')
+        return
+
+    # БД
+    if _DB_AVAILABLE:
+        for p in normalized:
+            try:
+                p['status'] = p.get('status', 'upcoming')
+                db.save_prediction(p)
+            except Exception as e:
+                print(f'  ⚠️ DB save: {p.get("home","?")} — {p.get("away","?")}: {e}')
+    else:
+        print('  ⚠️ БД недоступна — только JSON')
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Пост-проверка после batch-генерации
+# ═══════════════════════════════════════════════════════════════════════
+
+def run_post_check(sport: str = 'all', path: str = PREDICTION_PATH):
+    """Проверить корректность сохранённых прогнозов после batch-генерации.
+    
+    Args:
+        sport: фильтр по спорту ('football', 'NHL', 'NBA', 'ATP', или 'all')
+        path: путь к predictions_data.json
+    """
+    if not os.path.exists(path):
+        print(f'  ⚠️ Post-check: {path} не найден!')
+        return
+
+    try:
+        with open(path, encoding='utf-8') as f:
+            data = json.load(f)
+    except Exception as e:
+        print(f'  ❌ Post-check: ошибка чтения: {e}')
+        return
+
+    preds = data.get('predictions', [])
+    if sport != 'all':
+        preds = [p for p in preds if p.get('league') in ('НХЛ', 'NBA', 'ATP', 'WTA') or p.get('sport') == sport]
+
+    if len(preds) == 0:
+        print(f'  ❌ Post-check: нет прогнозов для {sport}!')
+        return
+
+    # Валидация схемы
+    ok, errors = validate(data, 'predictions_data')
+    if ok:
+        print(f'  ✅ Post-check: {len(preds)} прогнозов, схема OK')
+    else:
+        print(f'  ⚠️ Post-check: {len(errors)} ошибок схемы')
+        for e in errors[:3]:
+            print(f'    - {e}')
+
+    # Проверка обязательных полей
+    for i, p in enumerate(preds):
+        for field in PREDICTION_REQUIRED_FIELDS:
+            if field not in p:
+                print(f'  ⚠️ Post-check: прогноз [{i}] без поля {field}')
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Статистика капера (системный промпт)
+# ═══════════════════════════════════════════════════════════════════════
+
+def build_capper_stats_block() -> str:
+    """Собрать блок статистики для system prompt.
+    Сначала БД, fallback на JSON.
+    """
+    s = None
+    if _DB_AVAILABLE:
+        try:
+            s = db.get_stats()
+        except:
+            s = None
+
+    if not s or s.get('total_predictions', 0) < 5:
+        # Fallback: JSON
+        hist_path = '/opt/predictions_history.json'
+        if os.path.exists(hist_path):
+            try:
+                with open(hist_path, encoding='utf-8') as f:
+                    hist = json.load(f)
+                s = hist.get('summary', {})
+            except:
+                pass
+
+    if not s:
+        return ''
+
+    total = s.get('total_predictions', 0)
+    if total < 5:
+        return ''
+
+    win = s.get('win', {})
+    tot = s.get('total', {})
+    wt = win.get('total', 0) or 1
+    tt = tot.get('total', 0) or 1
+    wc = win.get('correct', 0)
+    tc = tot.get('correct', 0)
+    by_league = s.get('by_league', {})
+
+    lines = []
+    lines.append('📊 Твоя текущая статистика:')
+    lines.append(f'Win: {wc}/{wt} ({wc/wt*100:.0f}%) | Total: {tc}/{tt} ({tc/tt*100:.0f}%)')
+
+    if by_league:
+        lines.append('По лигам:')
+        for league, st in sorted(by_league.items(),
+                                  key=lambda x: x[1].get('win', {}).get('total', 0), reverse=True):
+            w = st.get('win', {})
+            t = st.get('total', {})
+            wt_l = w.get('total', 0) or 1
+            tt_l = t.get('total', 0) or 1
+            lines.append(f'  {league}: Win {w.get("correct",0)}/{w.get("total",0)} '
+                        f'({w.get("correct",0)/wt_l*100:.0f}%), '
+                        f'Total {t.get("correct",0)}/{t.get("total",0)} '
+                        f'({t.get("correct",0)/tt_l*100:.0f}%)')
+
+    if wc < tc:
+        lines.append('Подсказка: исходы — твой слабый сигнал (Win {:.0f}%), будь осторожнее с фаворитами.'.format(
+            wc/wt*100))
+    else:
+        lines.append('Подсказка: тоталы — твой слабый сигнал (Total {:.0f}%), перепроверь аргументы.'.format(
+            tc/tt*100))
+
+    return '\n' + '\n'.join(lines)
