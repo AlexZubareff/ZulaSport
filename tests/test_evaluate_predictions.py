@@ -11,6 +11,7 @@
 """
 
 import os, sys, json, pytest
+from unittest.mock import patch
 
 sys.path.insert(0, '/opt')
 
@@ -127,7 +128,8 @@ def _run_eval(tmp_path, queue, live_scores=None, daily_results=None):
 
     _oq, _oh, _ol, _or = ep.PRED_PATH, ep.HISTORY_PATH, ep.LIVE_PATH, ep.RESULTS_PATH
     ep.PRED_PATH, ep.HISTORY_PATH, ep.LIVE_PATH, ep.RESULTS_PATH = qpath, hpath, lpath, rpath
-    ep.evaluate()
+    with patch('evaluate_predictions._DB_AVAILABLE', False):
+        ep.evaluate()
     ep.PRED_PATH, ep.HISTORY_PATH, ep.LIVE_PATH, ep.RESULTS_PATH = _oq, _oh, _ol, _or
 
     history = json.load(open(hpath)) if os.path.getsize(hpath) > 2 else {'predictions': [], 'summary': {}}
@@ -230,11 +232,12 @@ class TestEvaluateFlow:
         _oq, _oh, _ol, _or = ep.PRED_PATH, ep.HISTORY_PATH, ep.LIVE_PATH, ep.RESULTS_PATH
         ep.PRED_PATH, ep.HISTORY_PATH, ep.LIVE_PATH, ep.RESULTS_PATH = qpath, hpath, lpath, rpath
 
-        # Первый прогон
-        ep.evaluate()
+        with patch('evaluate_predictions._DB_AVAILABLE', False):
+            # Первый прогон
+            ep.evaluate()
 
-        # Второй прогон — те же данные, тот же результат
-        ep.evaluate()
+            # Второй прогон — те же данные, тот же результат
+            ep.evaluate()
         ep.PRED_PATH, ep.HISTORY_PATH, ep.LIVE_PATH, ep.RESULTS_PATH = _oq, _oh, _ol, _or
 
         history = json.load(open(hpath))
