@@ -17,6 +17,7 @@ import importlib
 flashscore_other = importlib.import_module('flashscore_other')
 
 sys.path.insert(0, '/opt')
+from date_utils import normalize_date, format_date_display, today_storage, yesterday_storage
 import tennis_names
 import nhl_api
 import balldontlie_api
@@ -403,7 +404,7 @@ def fetch_tennis(date_str):
                 # Фильтр по дате матча — только за указанную дату
                 mdate = comp.get('date', '')
                 if mdate:
-                    mday = mdate[:10].replace('-', '')  # 2026-05-13 → 20260513
+                    mday = normalize_date(mdate[:10])
                     if mday != date_str:
                         continue
 
@@ -700,8 +701,8 @@ def main():
     # Для даты файла и API (ESPN/NHL) используем МСК
     now_msk = now + MOW
     yesterday_msk = now_msk - timedelta(days=1)
-    date_str = yesterday_msk.strftime('%Y%m%d')
-    date_str_today = now_msk.strftime('%Y%m%d')
+    date_str = yesterday_storage()
+    date_str_today = today_storage()
 
     print(f'📅 Период: {date_from.isoformat()} — {date_to.isoformat()}')
 

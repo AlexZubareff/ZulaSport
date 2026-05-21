@@ -555,16 +555,23 @@ def get_results_text(live_lookup=None):
 def get_upcoming(target_date=None):
     """Предстоящие матчи из JSON (tv_channels + прогнозные матчи).
     Использует накопительное хранилище (storage.py).
+    Принимает дату в любом формате (dd.mm.yyyy, YYYY-MM-DD, YYYYmmdd).
     """
     import storage as _st
+    from date_utils import normalize_date
     matches = []
 
+    if target_date:
+        target_date = normalize_date(target_date)
+    else:
+        target_date = ''
+
     # 1. Из tv_channels_data.json (все спортивные матчи)
-    tv_matches = _st.get_matches_for_date('/tmp/tv_channels_data.json', target_date or '')
+    tv_matches = _st.get_matches_for_date('/tmp/tv_channels_data.json', target_date)
     matches.extend(tv_matches)
 
     # 2. Из upcoming_matches.json (футбольные матчи для прогнозов)
-    up_matches = _st.get_matches_for_date('/tmp/upcoming_matches.json', target_date or '')
+    up_matches = _st.get_matches_for_date('/tmp/upcoming_matches.json', target_date)
     seen_keys = {(m.get('league',''), m.get('home',''), m.get('away','')) for m in matches}
     for m in up_matches:
         key = (m.get('league',''), m.get('home',''), m.get('away',''))
@@ -732,8 +739,9 @@ def _render_match_card(m, live_lookup, predictions_by_match, logo_leagues, show_
 
 
 def generate():
+    from date_utils import format_date_display, today_display, tomorrow_display, yesterday_storage
     now = datetime.now(UTC) + MOW
-    now_str = now.strftime('%d.%m.%Y %H:%M')
+    now_str = format_date_display(now) + ' ' + now.strftime('%H:%M')
 
     # Загружаем кеш контента из предыдущей генерации
     content_cache = _load_content_cache()
@@ -743,9 +751,9 @@ def generate():
     live_lookup = _load_live_scores()
 
     # Дата сегодня и завтра
-    today_date = now.strftime('%d.%m.%Y')
-    next_date = (now + timedelta(days=1)).strftime('%d.%m.%Y')
-    yesterday_date = (now - timedelta(days=1)).strftime('%d.%m.%Y')
+    today_date = today_display()
+    next_date = tomorrow_display()
+    yesterday_date = format_date_display(yesterday_storage())
 
     # ── Результаты: daily_results + finished из live_scores ──
     results = get_results_text(live_lookup)

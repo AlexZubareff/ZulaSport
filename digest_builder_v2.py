@@ -7,6 +7,9 @@
 import os, sys, json, re, requests, subprocess
 from datetime import datetime, timedelta, timezone
 
+sys.path.insert(0, '/opt')
+from date_utils import normalize_date, format_date_display, format_date_storage, format_date_iso
+
 MOW = timedelta(hours=3)
 
 # ============== ESPN Лиги ==============
@@ -333,8 +336,8 @@ def fetch_myscore_data():
 def build_results(ref_date, rpl, khl):
     """Дайджест 1: Итоги прошедших суток"""
     today = ref_date
-    date_str = today.strftime('%Y%m%d')
-    date_ru = today.strftime('%d.%m.%Y')
+    date_str = format_date_storage(today)
+    date_ru = format_date_display(today)
     days = ['ПН', 'ВТ', 'СР', 'ЧТ', 'ПТ', 'СБ', 'ВС']
     dow = days[today.weekday()]
     
@@ -391,8 +394,8 @@ def build_plan(ref_date, rpl, khl):
     """Дайджест 2: План на следующий день"""
     # Дата плана — ref_date + 1 день
     plan_date = ref_date + timedelta(days=1)
-    date_str = plan_date.strftime('%Y%m%d')
-    date_ru = plan_date.strftime('%d.%m.%Y')
+    date_str = format_date_storage(plan_date)
+    date_ru = format_date_display(plan_date)
     days = ['ПН', 'ВТ', 'СР', 'ЧТ', 'ПТ', 'СБ', 'ВС']
     dow = days[plan_date.weekday()]
     
@@ -405,7 +408,7 @@ def build_plan(ref_date, rpl, khl):
     espn = fetch_espn(date_str)
     
     print('📡 План: TV Guide...', file=sys.stderr)
-    tvguide_date = plan_date.strftime('%Y-%m-%d')
+    tvguide_date = format_date_iso(plan_date)
     tvguide = fetch_tvguide(tvguide_date)
     
     # Только запланированные на завтра

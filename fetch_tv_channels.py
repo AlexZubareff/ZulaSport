@@ -29,6 +29,24 @@ _RU_TO_EN.update({v: k for k, v in _up.TEAMS_RU_EXTRA.items()})
 _headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
 
 
+# ─── Конвертация UTC → МСК (+3ч) ────────────────────────────────────
+def _utc_to_msk_time(time_str):
+    """Прибавить 3 часа к строке времени (HH:MM или DD.MM. HH:MM)."""
+    if not time_str or ':' not in time_str:
+        return time_str
+    import re
+    m = re.search(r'(\d{1,2}):(\d{2})', time_str)
+    if not m:
+        return time_str
+    old = m.group(0)
+    h, mi = int(m.group(1)), int(m.group(2))
+    h += 3
+    if h >= 24:
+        h -= 24
+    new = f'{h:02d}:{mi:02d}'
+    return time_str.replace(old, new, 1)
+
+
 # ─── ESPN per-match broadcast ───────────────────────────────────────
 def fetch_espn_scoreboard(league_path):
     """Получить scoreboard ESPN с broadcast-каналами.
@@ -98,9 +116,9 @@ def static_channels(league_name, match_data=None):
 # ─── ГЛАВНАЯ ─────────────────────────────────────────────────────────
 def collect():
     target_date = datetime.now(UTC) + timedelta(hours=3) + timedelta(days=1)  # MSK
-    date_str = target_date.strftime('%Y%m%d')
+    date_str = format_date_storage(target_date)
     weekday_ru = ['ПН', 'ВТ', 'СР', 'ЧТ', 'ПТ', 'СБ', 'ВС'][target_date.weekday()]
-    date_fmt = target_date.strftime('%d.%m.%Y')
+    date_fmt = format_date_display(target_date)
     print(f'📅 Собираю каналы на {date_fmt} ({weekday_ru})')
 
     result = {
@@ -195,7 +213,7 @@ def collect():
             print(f'  {home} — {away}: ✅ Match TV: {len(ch)}')
             result['matches'].append({
                 'sport': 'hockey', 'league': 'КХЛ', 'source': 'matchtv',
-                'home': home, 'away': away, 'time': m.get('time', ''),
+                'home': home, 'away': away, 'time': _utc_to_msk_time(m.get('time', '')),
                 'channels': ch,
             })
         else:
@@ -203,7 +221,7 @@ def collect():
             print(f'  {home} — {away}: ⚠️ статика: {len(ch)}')
             result['matches'].append({
                 'sport': 'hockey', 'league': 'КХЛ', 'source': 'static',
-                'home': home, 'away': away, 'time': m.get('time', ''),
+                'home': home, 'away': away, 'time': _utc_to_msk_time(m.get('time', '')),
                 'channels': ch,
             })
 
@@ -223,7 +241,7 @@ def collect():
             print(f'  {home} — {away}: ✅ Match TV: {len(ch)}')
             result['matches'].append({
                 'sport': 'hockey', 'league': 'ЧМ по хоккею', 'source': 'matchtv',
-                'home': home, 'away': away, 'time': m.get('time', ''),
+                'home': home, 'away': away, 'time': _utc_to_msk_time(m.get('time', '')),
                 'channels': ch,
             })
         else:
@@ -231,7 +249,7 @@ def collect():
             print(f'  {home} — {away}: ⚠️ статика: {len(ch)}')
             result['matches'].append({
                 'sport': 'hockey', 'league': 'ЧМ по хоккею', 'source': 'static',
-                'home': home, 'away': away, 'time': m.get('time', ''),
+                'home': home, 'away': away, 'time': _utc_to_msk_time(m.get('time', '')),
                 'channels': ch,
             })
 

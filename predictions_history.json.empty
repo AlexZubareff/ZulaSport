@@ -1,0 +1,20 @@
+{
+  "predictions": [],
+  "summary": {
+    "total_predictions": 0,
+    "finished": 0,
+    "upcoming": 0,
+    "win": {
+      "total": 0,
+      "correct": 0,
+      "incorrect": 0
+    },
+    "total": {
+      "total": 0,
+      "correct": 0,
+      "incorrect": 0
+    },
+    "by_league": {}
+  },
+  "last_updated": "2026-05-19T10:30:01.542991+00:00"
+}

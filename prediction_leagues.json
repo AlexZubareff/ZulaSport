@@ -6,6 +6,13 @@
     "Серия А": ["sstats:135"],
     "Бундеслига": ["sstats:78"],
     "Лига 1": ["sstats:61"],
-    "РПЛ": ["sstats:235"]
+    "РПЛ": ["sstats:235"],
+    "Лига Чемпионов": ["sstats:2"],
+    "Лига Европы": ["sstats:3"],
+    "Лига Конференций": ["sstats:848"],
+    "NBA": ["espn_nba:nba"],
+    "НХЛ": ["nhl_elo:nhl"],
+    "ATP": ["tennis_elo:atp"],
+    "WTA": ["tennis_elo:wta"]
   }
 }

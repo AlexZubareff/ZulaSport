@@ -6,8 +6,11 @@
 Запуск: 9:20 / 23:20 по крону
 """
 
-import os, json
+import os, sys, json
 from datetime import datetime, timedelta, timezone
+
+sys.path.insert(0, '/opt')
+from date_utils import format_date_display, format_date_iso
 
 # ─── Конфиг ─────────────────────────────────────────────────────────
 HISTORY_PATH = '/opt/predictions_history.json'
@@ -15,6 +18,13 @@ BOT_TOKEN = open('/opt/sport_bot.py').read().split('TOKEN = "')[1].split('"')[0]
 CHAT_IDS = [208291706]
 
 MOW = timezone(timedelta(hours=3))
+
+# БД
+try:
+    import db
+    _DB_AVAILABLE = True
+except:
+    _DB_AVAILABLE = False
 
 
 def send_all(text):
@@ -83,23 +93,41 @@ def fmt_summary(summary, today_str):
 
 def main():
     now = datetime.now(MOW)
-    today_str = now.strftime('%d.%m.%Y')
-    today_iso = now.strftime('%Y-%m-%d')
+    today_str = format_date_display(now)
+    today_iso = format_date_iso(now)
 
-    if not os.path.exists(HISTORY_PATH):
-        print('  predictions_history.json не найден')
+    summary = None
+
+    # БД
+    if _DB_AVAILABLE:
+        try:
+            s = db.get_stats()
+            if s and s.get('total_predictions', 0) > 0:
+                summary = s
+                # Сегодняшние
+                today_preds = db.execute(
+                    "SELECT * FROM predictions WHERE status='finished' AND match_date = %s",
+                    (today_iso,)
+                )
+                summary['_today'] = [dict(r) for r in today_preds] if today_preds else []
+                print(f'📊 Из БД: {summary["total_predictions"]} прогнозов')
+        except Exception as e:
+            print(f'  БД: {e}')
+
+    # Fallback: JSON
+    if not summary and os.path.exists(HISTORY_PATH):
+        with open(HISTORY_PATH, encoding='utf-8') as f:
+            data = json.load(f)
+        summary = data.get('summary', {})
+        all_preds = data.get('predictions', [])
+        summary['_today'] = [h for h in all_preds
+                             if h.get('match_date') == today_iso or h.get('date') == today_iso
+                             and h.get('status') == 'finished']
+
+    if not summary or summary.get('total_predictions', 0) == 0:
         send_all('📊 Статистика прогнозов пока не собирается — нет данных.')
+        print('  Нет данных')
         return
-
-    with open(HISTORY_PATH, encoding='utf-8') as f:
-        data = json.load(f)
-
-    summary = data.get('summary', {})
-    all_preds = data.get('predictions', [])
-
-    # Добавляем сегодняшние завершённые в summary для блока "За сутки"
-    summary['_today'] = [h for h in all_preds
-                         if h.get('date') == today_iso and h.get('status') == 'finished']
 
     report = fmt_summary(summary, today_str)
     print(report)

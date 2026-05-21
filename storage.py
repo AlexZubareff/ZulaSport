@@ -12,8 +12,11 @@
 }
 """
 
-import os, json
+import os, json, sys
 from datetime import datetime, timezone, timedelta
+
+sys.path.insert(0, '/opt')
+from date_utils import normalize_date
 
 UTC = timezone.utc
 MOW = timedelta(hours=3)
@@ -56,15 +59,10 @@ def add_date(path, date_str, matches):
 
 
 def get_matches_for_date(path, target_date):
-    """Вернуть список матчей для target_date (строки 'dd.mm.yyyy' или 'YYYYmmdd')."""
-    # Нормализуем формат
-    target = target_date.replace('.', '')
-    if len(target) == 8 and '.' not in target_date:
-        pass  # уже YYYYmmdd
-    elif len(target) == 8:
-        # dd.mm.yyyy → YYYYmmdd
-        target = target[4:] + target[2:4] + target[:2]
-
+    """Вернуть список матчей для target_date.
+    Принимает 'dd.mm.yyyy', 'YYYY-MM-DD' или 'YYYYmmdd'."""
+    assert isinstance(target_date, str), f'дата должна быть строкой: {target_date}'
+    target = normalize_date(target_date)
     by_date = load_by_date(path)
     return by_date.get(target, [])
 

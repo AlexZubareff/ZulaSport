@@ -16,6 +16,13 @@ from collections import defaultdict
 # Импорт маппера команд
 import team_mapper
 
+# БД (если доступна)
+try:
+    import db
+    _DB_AVAILABLE = True
+except Exception:
+    _DB_AVAILABLE = False
+
 # ─── Пути ───────────────────────────────────────────────────────────
 PRED_PATH = '/opt/predictions_data.json'
 HISTORY_PATH = '/opt/predictions_history.json'
@@ -361,6 +368,17 @@ def evaluate():
     history['last_updated'] = now.isoformat()
 
     save_json(HISTORY_PATH, history)
+
+    # ── БД: сохраняем оценённые ──
+    if _DB_AVAILABLE:
+        for entry in evaluated:
+            try:
+                # Преобразуем history_entry в формат БД
+                entry['status'] = 'finished'
+                # result уже вложенный — db._pred_to_params разберёт
+                db.save_prediction(entry)
+            except Exception:
+                pass
 
     # ── Обновляем очередь (удаляем оценённые) ──
     still_waiting = [qp for qp in queue if _pred_key(qp) in queue_keys]

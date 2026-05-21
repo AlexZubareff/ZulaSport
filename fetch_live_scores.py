@@ -11,7 +11,11 @@
 """
 
 import json, os, sys, requests
+from data_schemas import validate
 from datetime import datetime, timedelta, timezone
+
+sys.path.insert(0, '/opt')
+from date_utils import today_storage, today_iso
 
 # ─── MAP: лига → (ESPN sport_path, sport_type) ────────────────────
 ESPN_PATHS = {
@@ -23,6 +27,11 @@ ESPN_PATHS = {
     'РПЛ':       ('soccer/rus.1', 'football'),
     'НХЛ':       ('hockey/nhl', 'hockey'),
     'NBA':       ('basketball/nba', 'basketball'),
+    'Лига чемпионов': ('soccer/uefa.champions', 'football'),
+    'Лига Европы':    ('soccer/uefa.europa', 'football'),
+    'Евролига':       ('basketball/uefa.euroleague', 'basketball'),
+    'ATP':            ('tennis/atp', 'tennis'),
+    'WTA':            ('tennis/wta', 'tennis'),
 }
 
 # ─── Перевод команд EN→RU (копия из daily_results.py) ──────────────
@@ -264,10 +273,125 @@ def _fetch_live_stats(competition_id, sport_path):
     return teams_stats
 
 
+# ─── Карта flashscore-лиг ──────────────────────────────────────────
+FLASHSCORE_LEAGUES = {
+    'world-cup-hockey': ('ЧМ по хоккею', '🏒', 'hockey'),
+    'khl':              ('КХЛ',          '🏒', 'hockey'),
+    'vtb':              ('Лига ВТБ',     '🏀', 'basketball'),
+    'euroleague':       ('Евролига',     '🏀', 'basketball'),
+}
+
+
+def _fetch_flashscore_league(league_key, all_matches, now):
+    """Универсальный сбор live+upcoming+finished для flashscore-лиги.
+    Добавляет только те матчи, которых ещё нет в all_matches (fallback).
+    """
+    import re as _re
+    def _clean_time(t):
+        if not t:
+            return ''
+        # Убираем текст после времени: "19.05. 18:20\nПосле\nбул." → "19.05. 18:20"
+        t = t.split('\n')[0].strip()
+        return t
+
+    info = FLASHSCORE_LEAGUES.get(league_key)
+    if not info:
+        return 0, 0
+    league_name, emoji, sport = info
+
+    added_live = 0
+    added_finished = 0
+
+    try:
+        sys.path.insert(0, '/root/.openclaw/workspace/odds')
+        from flashscore_other import fetch_upcoming_live, fetch_results
+
+        # 1. Предстоящие + live (основная страница)
+        fs_live, _ = fetch_upcoming_live(league_key)
+        for m in fs_live:
+            if not isinstance(m, dict):
+                continue
+            key = f'{league_name}||{m["home"]}||{m["away"]}'
+            if key in all_matches:
+                continue  # уже есть из ESPN
+
+            # Используем статус из flashscore, если есть
+            fs_status = m.get('status', '')
+            score = m.get('score', '')
+            has_score = bool(score and score not in ('-', '-:-', ''))
+
+            if fs_status in ('live', 'finished'):
+                status = fs_status
+            elif has_score:
+                mt = m.get('time', '')
+                if not mt:
+                    status = 'live'
+                else:
+                    status = 'finished'
+            else:
+                status = 'upcoming'
+
+            _time = _clean_time(m.get('time', ''))
+            all_matches[key] = {
+                'league': league_name,
+                'home': m['home'],
+                'away': m['away'],
+                'score': score if has_score else '',
+                'status': status,
+                'status_detail': '',
+                'match_time': _time,
+                'sport': sport,
+                'updated_at': now.isoformat(),
+            }
+            added_live += 1
+
+        # 2. Завершённые (результаты)
+        fs_finished, _ = fetch_results(league_key)
+        for m in fs_finished:
+            if not isinstance(m, dict):
+                continue
+            key = f'{league_name}||{m["home"]}||{m["away"]}'
+            if key in all_matches:
+                existing = all_matches[key]
+                if existing['status'] == 'live':
+                    continue  # не перезаписываем live
+                if existing['status'] == 'finished':
+                    continue  # уже завершён
+                # Результат из устаревшего upcoming — обновляем (score есть, статус finished)
+                existing['score'] = m.get('score', '')
+                existing['status'] = 'finished'
+                existing['status_detail'] = 'final'
+                existing['match_time'] = _clean_time(m.get('time', ''))
+                existing['updated_at'] = now.isoformat()
+                added_finished += 1
+                continue
+
+            _time = _clean_time(m.get('time', ''))
+            all_matches[key] = {
+                'league': league_name,
+                'home': m['home'],
+                'away': m['away'],
+                'score': m.get('score', ''),
+                'status': 'finished',
+                'status_detail': 'final',
+                'match_time': _time,
+                'sport': sport,
+                'updated_at': now.isoformat(),
+            }
+            added_finished += 1
+
+        print(f'  {emoji} {league_name}: {len(fs_live)} pre+live, {len(fs_finished)} finished (+{added_live}+{added_finished} новых)')
+
+    except Exception as e:
+        print(f'  ⚠️ flashscore {league_name}: {e}')
+
+    return added_live, added_finished
+
+
 def main():
     now = datetime.now(UTC)
     now_msk = now + MOW  # MSK — для определения «сегодня»
-    date_str = now_msk.strftime('%Y%m%d')
+    date_str = today_storage()
     print(f'📡 Fetching live scores for {date_str}')
 
     all_matches = {}
@@ -303,13 +427,99 @@ def main():
             else:
                 print(f'  ⚠️ {key}: нет статистики')
 
+    # ── NHL API (дополнительный источник для НХЛ) ──
+    try:
+        from fetch_nhl_data import fetch_schedule
+        from nhl_api import ru as nhl_ru
+        nhl_data = fetch_schedule()
+        for match in nhl_data.get('upcoming', []) + nhl_data.get('finished', []):
+            home_ru = match.get('home_ru', '') or nhl_ru(match.get('home', ''))
+            away_ru = match.get('away_ru', '') or nhl_ru(match.get('away', ''))
+            key = f'НХЛ||{home_ru}||{away_ru}'
+            state = match.get('game_state', '')
+            if state == 'FUT':
+                status = 'upcoming'
+            elif state == 'LIVE':
+                status = 'live'
+            elif state in ('OFF', 'FINAL'):
+                status = 'finished'
+            else:
+                status = 'upcoming'
+            score = match.get('score', '')
+            if not score and match.get('home_score') is not None:
+                score = f"{match.get('home_score', '?')}:{match.get('away_score', '?')}"
+            all_matches[key] = {
+                'league': 'НХЛ',
+                'home': home_ru,
+                'away': away_ru,
+                'score': score or '',
+                'status': status,
+                'status_detail': state,
+                'match_time': match.get('time', ''),
+                'sport': 'hockey',
+                'updated_at': now.isoformat(),
+            }
+        print(f'  🏒 NHL API: {len(nhl_data.get("upcoming",[]))} предстоящих, {len(nhl_data.get("finished",[]))} завершённых')
+    except Exception as e:
+        print(f'  ⚠️ NHL API: {e}')
+
+    # ── Flashscore для лиг (fallback к ESPN) + DB ──
+    try:
+        sys.path.insert(0, '/opt')
+        import db as _db
+        today_msk = today_iso()
+        db_matches = _db.execute(
+            "SELECT * FROM matches WHERE match_date = %s AND status = 'scheduled' ORDER BY match_time",
+            (today_msk,)
+        )
+
+        # Flashscore: ЧМ, КХЛ, ВТБ, Евролига (пропускает матчи уже из ESPN)
+        for league_key in FLASHSCORE_LEAGUES:
+            _fetch_flashscore_league(league_key, all_matches, now)
+
+        # DB — заполняем оставшиеся как upcoming
+        for m in db_matches:
+            key = f'{m["league"]}||{m["home"]}||{m["away"]}'
+            if key not in all_matches:
+                all_matches[key] = {
+                    'league': m['league'],
+                    'home': m['home'],
+                    'away': m['away'],
+                    'score': '',
+                    'status': 'upcoming',
+                    'status_detail': '',
+                    'match_time': m.get('match_time', ''),
+                    'sport': 'hockey' if 'хоккей' in str(m.get('league', '')).lower()
+                             else 'basketball' if 'втб' in str(m.get('league', '')).lower() or 'евролиг' in str(m.get('league', '')).lower()
+                             else 'tennis' if m.get('league') in ('ATP', 'WTA')
+                             else 'football',
+                    'updated_at': now.isoformat(),
+                }
+        if db_matches:
+            print(f'  📋 +{len(db_matches)} матчей из расписания')
+    except Exception as e:
+        print(f'  ⚠️ Ошибка загрузки из БД: {e}')
+
     output = {
         'updated_at': now.isoformat(),
         'matches': all_matches,
     }
 
-    with open(LIVE_PATH, 'w', encoding='utf-8') as f:
+    # Валидация перед записью
+    ok, errs = validate(output, 'live_scores')
+    if not ok:
+        print(f'  ❌ live_scores не прошёл валидацию: {errs}')
+        # Не пишем битые данные — сайт покажет предыдущую версию
+        import shutil
+        if os.path.exists(LIVE_PATH):
+            shutil.copy2(LIVE_PATH, '/var/www/sport/live_scores.json')
+        return []
+
+    # Атомарная запись: пишем в .tmp, потом переименовываем
+    tmp_path = LIVE_PATH + '.tmp'
+    with open(tmp_path, 'w', encoding='utf-8') as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
+    os.rename(tmp_path, LIVE_PATH)
 
     # Копируем в web-root для клиентского JS
     try:

@@ -15,6 +15,13 @@ import random
 import requests
 from playwright.sync_api import sync_playwright
 
+# БД (если доступна)
+try:
+    import db
+    _DB_AVAILABLE = True
+except Exception:
+    _DB_AVAILABLE = False
+
 # ─── НАСТРОЙКИ ────────────────────────────────────────────────────────
 SSTATS_KEY = os.environ.get('SSTATS_KEY', '')
 if not SSTATS_KEY:
@@ -31,12 +38,14 @@ try:
 except: pass
 
 # ID лиг в SStats
-LS = {'rpl': 235, 'epl': 39, 'laliga': 140, 'seriea': 135, 'bundesliga': 78, 'ligue1': 61}
+LS = {'rpl': 235, 'epl': 39, 'laliga': 140, 'seriea': 135, 'bundesliga': 78, 'ligue1': 61, 'ucl': 2, 'uel': 3, 'uecl': 848}
 
 # Пути flashscore
 FS_PATHS = {'rpl': '/football/russia/premier-league/', 'epl': '/football/england/premier-league/',
     'laliga': '/football/spain/laliga/', 'seriea': '/football/italy/serie-a/',
-    'bundesliga': '/football/germany/bundesliga/', 'ligue1': '/football/france/ligue-1/'}
+    'bundesliga': '/football/germany/bundesliga/', 'ligue1': '/football/france/ligue-1/',
+    'ucl': '/football/europe/champions-league/', 'uel': '/football/europe/europa-league/',
+    'uecl': '/football/europe/conference-league/'}
 
 # Активные лиги для прогнозов
 _PRED_LEAGUES = {}
@@ -337,10 +346,248 @@ def parse_match_flashscore(url):
     return data
 
 
+# ═══════════════════ Few-shot (похожие матчи) ═══════════════════
+
+def find_similar_predictions(match_info, sstats_data, top_k=3):
+    """Ищет похожие завершённые матчи с верными прогнозами.
+    Сначала БД, fallback на JSON."""
+    import json, os
+
+    g = sstats_data.get('glicko', {})
+    if not g:
+        return []
+
+    home_prob = g.get('home_prob', 0.5)
+    draw_prob = g.get('draw_prob', 0.25)
+    away_prob = g.get('away_prob', 0.25)
+    league = match_info.get('league', '')
+
+    # БД
+    if _DB_AVAILABLE:
+        try:
+            rows = db.find_similar(home_prob, draw_prob, away_prob, league, top_k)
+            if rows:
+                # Конвертируем RealDictRow в обычные dict (для совместимости с JSON форматом)
+                result = []
+                for r in rows:
+                    d = dict(r)
+                    # Восстанавливаем вложенную структуру для совместимости
+                    d['result'] = {
+                        'win': {'correct': d.pop('result_win', None) == 'correct',
+                                'predicted': d.get('xgb_win_pred')},
+                        'total': {'correct': d.pop('result_total', None) == 'correct',
+                                  'predicted': d.get('xgb_total_pred')},
+                    }
+                    d['glicko'] = {
+                        'home_prob': d.pop('glicko_home_prob', None),
+                        'draw_prob': d.pop('glicko_draw_prob', None),
+                        'away_prob': d.pop('glicko_away_prob', None),
+                    }
+                    result.append(d)
+                return result
+        except:
+            pass
+
+    # Fallback: JSON (старый формат)
+    hist_path = '/opt/predictions_history.json'
+    if not os.path.exists(hist_path):
+        return []
+
+    try:
+        with open(hist_path, encoding='utf-8') as f:
+            hist = json.load(f)
+    except:
+        return []
+
+    candidates = []
+    for p in hist.get('predictions', []):
+        r = p.get('result')
+        if not r or not isinstance(r, dict):
+            continue
+        win_ok = r.get('win', {}).get('correct') is True
+        total_ok = r.get('total', {}).get('correct') is True
+        if not (win_ok or total_ok):
+            continue
+        if p.get('league') and p.get('league') != league:
+            pl_penalty = 0.15
+        else:
+            pl_penalty = 0.0
+        pg = p.get('glicko', {})
+        if not pg:
+            continue
+        dist = abs(pg.get('home_prob', 0) - home_prob) \
+             + abs(pg.get('draw_prob', 0) - draw_prob) \
+             + abs(pg.get('away_prob', 0) - away_prob) \
+             + pl_penalty
+        if dist < 0.4:
+            candidates.append((dist, p))
+
+    candidates.sort(key=lambda x: x[0])
+    return [c[1] for c in candidates[:top_k]]
+
+
+# ═══════════════════ Статистика капера ═══════════════════
+
+def _build_capper_stats():
+    """Собирает блок статистики для system prompt.
+    Сначала БД, fallback на JSON."""
+    import json, os
+
+    s = None
+    # БД
+    if _DB_AVAILABLE:
+        try:
+            s = db.get_stats()
+        except:
+            s = None
+
+    # Fallback: JSON
+    if not s or s.get('total_predictions', 0) < 5:
+        hist_path = '/opt/predictions_history.json'
+        if os.path.exists(hist_path):
+            try:
+                with open(hist_path, encoding='utf-8') as f:
+                    hist = json.load(f)
+                s = hist.get('summary', {})
+            except:
+                pass
+
+    if not s:
+        return ''
+    total = s.get('total_predictions', 0)
+    if total < 5:
+        return ''
+
+    win = s.get('win', {})
+    tot = s.get('total', {})
+    by_league = s.get('by_league', {})
+
+    wt = win.get('total', 0) or 1
+    tt = tot.get('total', 0) or 1
+    wc = win.get('correct', 0)
+    tc = tot.get('correct', 0)
+
+    lines = []
+    lines.append('📊 Твоя текущая статистика:')
+    lines.append(f'Win: {wc}/{wt} ({wc/wt*100:.0f}%) | Total: {tc}/{tt} ({tc/tt*100:.0f}%)')
+
+    if by_league:
+        lines.append('По лигам:')
+        for league, st in sorted(by_league.items(), key=lambda x: x[1].get('win', {}).get('total', 0), reverse=True):
+            w = st.get('win', {})
+            t = st.get('total', {})
+            wt_l = w.get('total', 0) or 1
+            tt_l = t.get('total', 0) or 1
+            lines.append(f'  {league}: Win {w.get("correct",0)}/{w.get("total",0)} ({w.get("correct",0)/wt_l*100:.0f}%), '
+                        f'Total {t.get("correct",0)}/{t.get("total",0)} ({t.get("correct",0)/tt_l*100:.0f}%)')
+
+    # Слабое место
+    if wc < tc:
+        lines.append(f'Подсказка: исходы — твой слабый сигнал (Win {wc/wt*100:.0f}%), будь осторожнее с фаворитами.')
+    else:
+        lines.append(f'Подсказка: тоталы — твой слабый сигнал (Total {tc/tt*100:.0f}%), перепроверь аргументы.')
+
+    return '\n' + '\n'.join(lines)
+
+
+# ═══════════════════ XGBoost ═══════════════════
+
+def _xgb_feature_vector(sstats_data):
+    """Превращает sstats_data в вектор фич для XGBoost."""
+    g = sstats_data.get('glicko', {}) or {}
+    odds = sstats_data.get('odds')
+    if isinstance(odds, list) and odds:
+        odds = odds[0]
+    if not isinstance(odds, dict):
+        odds = {}
+    totals = sstats_data.get('totals', {}) or {}
+
+    hp = g.get('home_prob', 0.33)
+    dp = g.get('draw_prob', 0.33)
+    ap = g.get('away_prob', 0.33)
+    hr = g.get('home_rating', 1500)
+    ar = g.get('away_rating', 1500)
+    hx = g.get('home_xg', 1.2)
+    ax = g.get('away_xg', 1.2)
+
+    oh = float(odds.get('home', 2.0))
+    od = float(odds.get('draw', 3.5))
+    oa = float(odds.get('away', 2.0))
+
+    ih = 1.0 / max(oh, 0.01)
+    id_ = 1.0 / max(od, 0.01)
+    ia = 1.0 / max(oa, 0.01)
+    margin = ih + id_ + ia
+
+    return [
+        hp, dp, ap,
+        hr, ar,
+        hx, ax,
+        oh, od, oa,
+        ih / margin, id_ / margin, ia / margin,
+        hr - ar,
+        hx - ax,
+        float(totals.get('over', 1.9)),
+        float(totals.get('under', 1.9)),
+    ]
+
+
+def xgb_predict(sstats_data):
+    """Предсказание XGBoost моделей для текущего матча.
+    Возвращает dict с вердиктами или None, если модели не загружены/нет данных."""
+    import os, json
+    import numpy as np
+    import xgboost as xgb
+
+    win_path = '/opt/capper_xgb/xgb_win.json'
+    total_path = '/opt/capper_xgb/xgb_total.json'
+
+    if not os.path.exists(win_path) or not os.path.exists(total_path):
+        return None
+
+    g = sstats_data.get('glicko', {})
+    if not g:
+        return None
+
+    features = np.array([_xgb_feature_vector(sstats_data)], dtype=np.float32)
+
+    try:
+        model_win = xgb.XGBClassifier()
+        model_win.load_model(win_path)
+
+        model_total = xgb.XGBClassifier()
+        model_total.load_model(total_path)
+
+        # Win: home/draw/away
+        win_probs = model_win.predict_proba(features)[0]
+        win_labels = ['home', 'draw', 'away']
+        win_pred = win_labels[np.argmax(win_probs)]
+        win_conf = float(win_probs.max())
+
+        # Total: over/under (с total_line из данных)
+        total_line = sstats_data.get('totals', {}).get('total_line', 2.5)
+        feat_tot = np.append(features[0], total_line).reshape(1, -1)
+        total_probs = model_total.predict_proba(feat_tot)[0]
+        total_pred = 'over' if total_probs[0] > total_probs[1] else 'under'
+        total_conf = float(max(total_probs))
+
+        return {
+            'win_prediction': win_pred,
+            'win_confidence': round(win_conf, 3),
+            'win_probs': {l: round(float(p), 3) for l, p in zip(win_labels, win_probs)},
+            'total_prediction': total_pred,
+            'total_confidence': round(total_conf, 3),
+        }
+    except Exception as e:
+        print(f'  ⚠️ XGBoost error: {e}')
+        return None
+
+
 # ═══════════════════ DeepSeek + Humanizer ═══════════════════
 
-def generate_prediction_text(match_info, sstats_data, fs_data, lineups=None):
-    """Сформировать текст прогноза через DeepSeek."""
+def generate_prediction_text(match_info, sstats_data, fs_data, lineups=None, similar_preds=None, stats_block='', xgb_verdict=None):
+    """Сформировать текст прогноза через DeepSeek.
+    xgb_verdict: результат xgb_predict() или None."""
     if not DEEPSEEK_KEY:
         return _fallback_prediction(sstats_data)
 
@@ -415,26 +662,45 @@ def generate_prediction_text(match_info, sstats_data, fs_data, lineups=None):
         if lineups.get('bench_away'):
             parts.append(f'Запасные ({match_info.get("away","?")}): {", ".join(lineups["bench_away"][:5])}')
 
-    prompt = '\n'.join(parts)
-    # Добавляем тоталы в промпт
-    if sstats_data.get('totals') and sstats_data['totals'].get('over'):
-        line = sstats_data['totals'].get('total_line', 2.5)
-        parts.append(f'\nТотал {line}: Over {sstats_data['totals']['over']}, Under {sstats_data['totals']['under']}')
-
-    prompt = '\n'.join(parts)
-        # Добавляем тоталы в промпт
+    # Тоталы
     if sstats_data.get('totals') and sstats_data['totals'].get('over'):
         tl = sstats_data['totals'].get('total_line', 2.5)
         parts.append(f'\nТотал {tl}: Over {sstats_data["totals"]["over"]}, Under {sstats_data["totals"]["under"]}')
 
+    # ✨ Few-shot: похожие матчи из истории
+    if similar_preds:
+        parts.append('\n\nПохожие матчи из твоей статистики (где прогноз оказался верным):')
+        for sp in similar_preds:
+            sp_home = sp.get('home', '?')
+            sp_away = sp.get('away', '?')
+            sp_score = sp.get('score', '?')
+            sp_result = sp.get('result', {})
+            win_verdict = sp_result.get('win', {}).get('predicted', '?')
+            total_verdict = sp_result.get('total', {}).get('predicted', '?')
+            parts.append(f'  • {sp_home} — {sp_away} ({sp_score}): исход={win_verdict}, тотал={total_verdict}')
+
+    # ✨ XGBoost вердикт
+    if xgb_verdict:
+        w = xgb_verdict
+        wl = {'home': 'хозяев', 'draw': 'ничью', 'away': 'гостей'}
+        parts.append(f'\n🤖 Математическая модель прогнозирует:')
+        parts.append(f'  Исход: {wl.get(w["win_prediction"], w["win_prediction"])} (уверенность {w["win_confidence"]*100:.0f}%)')
+        parts.append(f'  Тотал: {w["total_prediction"].upper()} (уверенность {w["total_confidence"]*100:.0f}%)')
+        parts.append(f'  Вероятности: П1 {w["win_probs"]["home"]*100:.0f}%, X {w["win_probs"]["draw"]*100:.0f}%, П2 {w["win_probs"]["away"]*100:.0f}%')
+
     prompt = '\n'.join(parts)
     prompt += '\n\nНапиши прогноз живым человеческим языком, как обсуждаешь матч с другом. Без шаблонов, списков и заголовков. Каждый раз начинай по-разному: вопросом, неожиданным фактом, цифрой, интригой, сравнением. В конце укажи вердикт на исход и отдельно на тотал (с аргументацией).' 
+
+    # ✨ Собираем system prompt со статистикой
+    system_msg = 'Ты спортивный аналитик с ярким стилем. Пиши прогноз как человек, а не как отчёт. Без списков, заголовков, приветствий и жирного текста. Каждый прогноз начинай уникально: вопросом, цифрой, интригой, сочной цитатой, историей — не повторяйся. В конце чёткий вердикт.'
+    if stats_block:
+        system_msg += stats_block
 
     try:
         resp = requests.post('https://api.deepseek.com/v1/chat/completions', json={
             'model': 'deepseek-chat',
             'messages': [
-                {'role': 'system', 'content': 'Ты спортивный аналитик с ярким стилем. Пиши прогноз как человек, а не как отчёт. Без списков, заголовков, приветствий и жирного текста. Каждый прогноз начинай уникально: вопросом, цифрой, интригой, сочной цитатой, историей — не повторяйся. В конце чёткий вердикт.'},
+                {'role': 'system', 'content': system_msg},
                 {'role': 'user', 'content': prompt}
             ],
             'temperature': 0.65,
@@ -519,9 +785,26 @@ def process_match(match_info, fetch_fs=True, fetch_lineups_flag=False, pw_page=N
         if lineups:
             print(f'составы ✅... ', flush=True)
 
-    # 4. DeepSeek прогноз
+    # 4. ✨ Few-shot: похожие матчи из истории
+    similar_preds = find_similar_predictions(match_info, ss)
+    if similar_preds:
+        print(f'few-shot {len(similar_preds)} ✅... ', end='', flush=True)
+
+    # 5. ✨ Статистика капера в system prompt
+    stats_block = _build_capper_stats()
+    if stats_block:
+        print(f'stats ✅... ', end='', flush=True)
+
+    # 5.5 ✨ XGBoost модель
+    xgb_verdict = xgb_predict(ss)
+    if xgb_verdict:
+        print(f'xgb {xgb_verdict["win_prediction"]} ({xgb_verdict["win_confidence"]:.0%}) ✅... ', end='', flush=True)
+
+    # 6. DeepSeek прогноз
     match_info_full = {**match_info, 'home': match_info.get('home', home), 'away': match_info.get('away', away), 'home_en': ss.get('home', home), 'away_en': ss.get('away', away)}
-    pred_text = generate_prediction_text(match_info_full, ss, fs_data, lineups)
+    pred_text = generate_prediction_text(match_info_full, ss, fs_data, lineups,
+                                          similar_preds=similar_preds, stats_block=stats_block,
+                                          xgb_verdict=xgb_verdict)
 
     print(f'✅')
     return {
@@ -535,6 +818,7 @@ def process_match(match_info, fetch_fs=True, fetch_lineups_flag=False, pw_page=N
         'odds': {'home': round(ss['odds'][0]['home'], 2), 'draw': round(ss['odds'][0]['draw'], 2), 'away': round(ss['odds'][0]['away'], 2)} if ss.get('odds') else None,
         'totals': ss.get('totals', {}),
         'glicko': ss.get('glicko'),
+        'xgb_verdict': xgb_verdict,
         'has_lineups': bool(lineups),
         'generated_at': datetime.now().isoformat(),
     }
@@ -589,7 +873,16 @@ def batch_generate():
 
     if not matches:
         _save_predictions([])
+        _run_post_generate_check([], 'predictions_data')
         return
+
+    # Валидация входящих матчей
+    for i, m in enumerate(matches):
+        for field in ('league', 'home', 'away', 'game_id'):
+            assert field in m, f'Матч [{i}] не имеет поля {field}: {m}'
+        assert isinstance(m.get('league'), str), f'league должно быть str: {m}'
+        assert isinstance(m.get('home'), str), f'home должно быть str: {m}'
+        assert isinstance(m.get('away'), str), f'away должно быть str: {m}'
 
     print(f'📊 Прогнозов: {len(matches)}')
     predictions = []
@@ -603,6 +896,7 @@ def batch_generate():
             print(f'  💾 сохранено {len(predictions)}/{len(matches)}')
 
     print(f'\n✅ Всего: {len(predictions)} прогнозов')
+    _run_post_generate_check(predictions, 'predictions_data')
 
 
 def batch_refresh():
@@ -684,8 +978,8 @@ def _make_match_key(pred):
 
 
 def _save_predictions(new_predictions):
-    """Добавить прогнозы в predictions_data.json (очередь).
-    Не перезаписывает существующие — только добавляет новые.
+    """Добавить прогнозы в очередь.
+    Пишет в JSON (для совместимости) и в БД (если доступна).
     Дедупликация по (league, home, away).
     """
     # Отфильтровать None
@@ -693,7 +987,16 @@ def _save_predictions(new_predictions):
     if not new_predictions:
         return
 
-    # Загружаем существующую очередь
+    # Проверка обязательных полей
+    for p in new_predictions:
+        for field in ('league', 'home', 'away', 'prediction'):
+            assert field in p, f'Прогнозу не хватает поля {field}: {p.get("home","?")} — {p.get("away","?")}'
+        assert isinstance(p.get('league'), str), f'league должно быть str: {p}'
+        assert isinstance(p.get('home'), str), f'home должно быть str: {p}'
+        assert isinstance(p.get('away'), str), f'away должно быть str: {p}'
+        assert isinstance(p.get('prediction'), str), f'prediction должно быть str: {p}'
+
+    # JSON (как было)
     existing = {}
     pred_path = '/opt/predictions_data.json'
     if os.path.exists(pred_path):
@@ -704,7 +1007,6 @@ def _save_predictions(new_predictions):
         except:
             pass
 
-    # Добавляем новые (или обновляем существующие по ключу)
     for p in new_predictions:
         existing[_make_match_key(p)] = p
 
@@ -715,6 +1017,60 @@ def _save_predictions(new_predictions):
     }
     with open(pred_path, 'w', encoding='utf-8') as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
+
+    # БД
+    if _DB_AVAILABLE:
+        for p in new_predictions:
+            p['status'] = 'upcoming'
+            try:
+                db.save_prediction(p)
+            except Exception:
+                pass
+
+
+# ═══════════════════ Пост-прогоночная проверка ═══════════════════
+
+def _run_post_generate_check(predictions, schema_name='predictions_data'):
+    """Проверить, что прогнозы сохранились корректно после batch-генерации."""
+    from data_schemas import validate
+    import os, json
+
+    pred_path = '/opt/predictions_data.json'
+
+    # 1. Проверка что файл существует
+    if not os.path.exists(pred_path):
+        print('  ⚠️ Post-check: predictions_data.json не найден!')
+        return
+
+    try:
+        with open(pred_path, encoding='utf-8') as f:
+            data = json.load(f)
+    except Exception as e:
+        print(f'  ❌ Post-check: ошибка чтения predictions_data.json: {e}')
+        return
+
+    preds = data.get('predictions', [])
+
+    # 2. Количество прогнозов > 0
+    if len(preds) == 0:
+        print('  ❌ Post-check: predictions_data.json пуст!')
+        return
+
+    # 3. Валидация по схеме
+    ok, errors = validate(data, schema_name)
+    if ok:
+        print(f'  ✅ Post-check: {len(preds)} прогнозов, схема OK')
+    else:
+        print(f'  ⚠️ Post-check: {len(errors)} ошибок схемы (первые 3):')
+        for e in errors[:3]:
+            print(f'    - {e}')
+
+    # 4. Каждый прогноз проходит проверку
+    for i, p in enumerate(preds):
+        for field in ('league', 'home', 'away', 'prediction'):
+            if field not in p:
+                print(f'  ⚠️ Post-check: прогноз [{i}] без поля {field}')
+                break
 
 
 # ═══════════════════ CLI ═══════════════════

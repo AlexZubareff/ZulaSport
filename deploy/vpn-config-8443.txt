@@ -1,0 +1,10 @@
+=== VLESS VPN Config (порт 8443) ===
+
+Порт: 8443
+ID: fb410555-abf8-40be-8f4c-aff0f7e93dd3
+Flow: xtls-rprx-vision
+SNI: www.google.com
+PublicKey: yIRJ7lI0o-bb3nuZXqq3eeqZ_JeRPVL4MRf_-98zcHI
+
+Ссылка для импорта:
+vless://fb410555-abf8-40be-8f4c-aff0f7e93dd3@195.133.9.206:8443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.google.com&fp=chrome&pbk=yIRJ7lI0o-bb3nuZXqq3eeqZ_JeRPVL4MRf_-98zcHI&type=tcp&headerType=none#ZulaVPN-8443

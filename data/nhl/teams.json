@@ -1,0 +1,258 @@
+[
+  {
+    "abbrev": "COL",
+    "name": "Colorado Avalanche",
+    "name_ru": "Колорадо Эвеланш",
+    "logo": "https://assets.nhle.com/logos/nhl/svg/COL_light.svg",
+    "conference": "Western",
+    "division": "Central"
+  },
+  {
+    "abbrev": "CAR",
+    "name": "Carolina Hurricanes",
+    "name_ru": "Каролина Харрикейнз",
+    "logo": "https://assets.nhle.com/logos/nhl/svg/CAR_light.svg",
+    "conference": "Eastern",
+    "division": "Metropolitan"
+  },
+  {
+    "abbrev": "DAL",
+    "name": "Dallas Stars",
+    "name_ru": "Даллас Старз",
+    "logo": "https://assets.nhle.com/logos/nhl/svg/DAL_light.svg",
+    "conference": "Western",
+    "division": "Central"
+  },
+  {
+    "abbrev": "BUF",
+    "name": "Buffalo Sabres",
+    "name_ru": "Баффало Сейбрз",
+    "logo": "https://assets.nhle.com/logos/nhl/svg/BUF_light.svg",
+    "conference": "Eastern",
+    "division": "Atlantic"
+  },
+  {
+    "abbrev": "TBL",
+    "name": "Tampa Bay Lightning",
+    "name_ru": "Тампа-Бэй Лайтнинг",
+    "logo": "https://assets.nhle.com/logos/nhl/svg/TBL_light.svg",
+    "conference": "Eastern",
+    "division": "Atlantic"
+  },
+  {
+    "abbrev": "MTL",
+    "name": "Montréal Canadiens",
+    "name_ru": "Montréal Canadiens",
+    "logo": "https://assets.nhle.com/logos/nhl/svg/MTL_light.svg",
+    "conference": "Eastern",
+    "division": "Atlantic"
+  },
+  {
+    "abbrev": "MIN",
+    "name": "Minnesota Wild",
+    "name_ru": "Миннесота Уайлд",
+    "logo": "https://assets.nhle.com/logos/nhl/svg/MIN_light.svg",
+    "conference": "Western",
+    "division": "Central"
+  },
+  {
+    "abbrev": "BOS",
+    "name": "Boston Bruins",
+    "name_ru": "Бостон Брюинз",
+    "logo": "https://assets.nhle.com/logos/nhl/svg/BOS_light.svg?season=20252026",
+    "conference": "Eastern",
+    "division": "Atlantic"
+  },
+  {
+    "abbrev": "OTT",
+    "name": "Ottawa Senators",
+    "name_ru": "Оттава Сенаторз",
+    "logo": "https://assets.nhle.com/logos/nhl/svg/OTT_light.svg",
+    "conference": "Eastern",
+    "division": "Atlantic"
+  },
+  {
+    "abbrev": "PIT",
+    "name": "Pittsburgh Penguins",
+    "name_ru": "Питтсбург Пингвинз",
+    "logo": "https://assets.nhle.com/logos/nhl/svg/PIT_light.svg",
+    "conference": "Eastern",
+    "division": "Metropolitan"
+  },
+  {
+    "abbrev": "PHI",
+    "name": "Philadelphia Flyers",
+    "name_ru": "Филадельфия Флайерз",
+    "logo": "https://assets.nhle.com/logos/nhl/svg/PHI_light.svg",
+    "conference": "Eastern",
+    "division": "Metropolitan"
+  },
+  {
+    "abbrev": "WSH",
+    "name": "Washington Capitals",
+    "name_ru": "Вашингтон Кэпиталз",
+    "logo": "https://assets.nhle.com/logos/nhl/svg/WSH_secondary_light.svg",
+    "conference": "Eastern",
+    "division": "Metropolitan"
+  },
+  {
+    "abbrev": "VGK",
+    "name": "Vegas Golden Knights",
+    "name_ru": "Вегас Голден Найтс",
+    "logo": "https://assets.nhle.com/logos/nhl/svg/VGK_light.svg",
+    "conference": "Western",
+    "division": "Pacific"
+  },
+  {
+    "abbrev": "EDM",
+    "name": "Edmonton Oilers",
+    "name_ru": "Эдмонтон Ойлерз",
+    "logo": "https://assets.nhle.com/logos/nhl/svg/EDM_light.svg",
+    "conference": "Western",
+    "division": "Pacific"
+  },
+  {
+    "abbrev": "UTA",
+    "name": "Utah Mammoth",
+    "name_ru": "Utah Mammoth",
+    "logo": "https://assets.nhle.com/logos/nhl/svg/UTA_light.svg?season=20252026",
+    "conference": "Western",
+    "division": "Central"
+  },
+  {
+    "abbrev": "DET",
+    "name": "Detroit Red Wings",
+    "name_ru": "Детройт Ред Уингз",
+    "logo": "https://assets.nhle.com/logos/nhl/svg/DET_light.svg?season=20252026",
+    "conference": "Eastern",
+    "division": "Atlantic"
+  },
+  {
+    "abbrev": "CBJ",
+    "name": "Columbus Blue Jackets",
+    "name_ru": "Коламбус Блю Джекетс",
+    "logo": "https://assets.nhle.com/logos/nhl/svg/CBJ_light.svg",
+    "conference": "Eastern",
+    "division": "Metropolitan"
+  },
+  {
+    "abbrev": "ANA",
+    "name": "Anaheim Ducks",
+    "name_ru": "Анахайм Дакс",
+    "logo": "https://assets.nhle.com/logos/nhl/svg/ANA_light.svg",
+    "conference": "Western",
+    "division": "Pacific"
+  },
+  {
+    "abbrev": "NYI",
+    "name": "NY Islanders Islanders",
+    "name_ru": "NY Islanders Islanders",
+    "logo": "https://assets.nhle.com/logos/nhl/svg/NYI_light.svg",
+    "conference": "Eastern",
+    "division": "Metropolitan"
+  },
+  {
+    "abbrev": "LAK",
+    "name": "Los Angeles Kings",
+    "name_ru": "Лос-Анджелес Кингз",
+    "logo": "https://assets.nhle.com/logos/nhl/svg/LAK_light.svg",
+    "conference": "Western",
+    "division": "Pacific"
+  },
+  {
+    "abbrev": "NJD",
+    "name": "New Jersey Devils",
+    "name_ru": "Нью-Джерси Девилз",
+    "logo": "https://assets.nhle.com/logos/nhl/svg/NJD_light.svg",
+    "conference": "Eastern",
+    "division": "Metropolitan"
+  },
+  {
+    "abbrev": "STL",
+    "name": "St. Louis Blues",
+    "name_ru": "Сент-Луис Блюз",
+    "logo": "https://assets.nhle.com/logos/nhl/svg/STL_light.svg?season=20252026",
+    "conference": "Western",
+    "division": "Central"
+  },
+  {
+    "abbrev": "NSH",
+    "name": "Nashville Predators",
+    "name_ru": "Нэшвилл Предаторз",
+    "logo": "https://assets.nhle.com/logos/nhl/svg/NSH_light.svg",
+    "conference": "Western",
+    "division": "Central"
+  },
+  {
+    "abbrev": "SJS",
+    "name": "San Jose Sharks",
+    "name_ru": "Сан-Хосе Шаркс",
+    "logo": "https://assets.nhle.com/logos/nhl/svg/SJS_light.svg",
+    "conference": "Western",
+    "division": "Pacific"
+  },
+  {
+    "abbrev": "FLA",
+    "name": "Florida Panthers",
+    "name_ru": "Флорида Пантерз",
+    "logo": "https://assets.nhle.com/logos/nhl/svg/FLA_light.svg",
+    "conference": "Eastern",
+    "division": "Atlantic"
+  },
+  {
+    "abbrev": "WPG",
+    "name": "Winnipeg Jets",
+    "name_ru": "Виннипег Джетс",
+    "logo": "https://assets.nhle.com/logos/nhl/svg/WPG_light.svg",
+    "conference": "Western",
+    "division": "Central"
+  },
+  {
+    "abbrev": "SEA",
+    "name": "Seattle Kraken",
+    "name_ru": "Сиэтл Кракен",
+    "logo": "https://assets.nhle.com/logos/nhl/svg/SEA_light.svg",
+    "conference": "Western",
+    "division": "Pacific"
+  },
+  {
+    "abbrev": "TOR",
+    "name": "Toronto Maple Leafs",
+    "name_ru": "Торонто Мэйпл Лифс",
+    "logo": "https://assets.nhle.com/logos/nhl/svg/TOR_light.svg",
+    "conference": "Eastern",
+    "division": "Atlantic"
+  },
+  {
+    "abbrev": "CGY",
+    "name": "Calgary Flames",
+    "name_ru": "Калгари Флэймз",
+    "logo": "https://assets.nhle.com/logos/nhl/svg/CGY_light.svg",
+    "conference": "Western",
+    "division": "Pacific"
+  },
+  {
+    "abbrev": "NYR",
+    "name": "NY Rangers Rangers",
+    "name_ru": "NY Rangers Rangers",
+    "logo": "https://assets.nhle.com/logos/nhl/svg/NYR_light.svg",
+    "conference": "Eastern",
+    "division": "Metropolitan"
+  },
+  {
+    "abbrev": "CHI",
+    "name": "Chicago Blackhawks",
+    "name_ru": "Чикаго Блэкхокс",
+    "logo": "https://assets.nhle.com/logos/nhl/svg/CHI_light.svg?season=20252026",
+    "conference": "Western",
+    "division": "Central"
+  },
+  {
+    "abbrev": "VAN",
+    "name": "Vancouver Canucks",
+    "name_ru": "Ванкувер Кэнакс",
+    "logo": "https://assets.nhle.com/logos/nhl/svg/VAN_light.svg",
+    "conference": "Western",
+    "division": "Pacific"
+  }
+]

@@ -14,6 +14,7 @@ import importlib
 flashscore_other = importlib.import_module('flashscore_other')
 
 sys.path.insert(0, '/opt')
+from date_utils import normalize_date, format_date_display, format_date_storage
 import tennis_names
 import nhl_api
 import balldontlie_api
@@ -327,7 +328,7 @@ def fetch_tennis_upcoming(date_str):
                 # Фильтр по дате — только на завтра
                 mdate = comp.get('date', '')
                 if mdate:
-                    mday = mdate[:10].replace('-', '')
+                    mday = normalize_date(mdate[:10])
                     if mday != date_str:
                         continue
 
@@ -504,10 +505,10 @@ def main():
     now = datetime.now(UTC)
     # Завтра в МСК
     target_date = now + MOW + timedelta(days=1)
-    date_str = target_date.strftime('%Y%m%d')
+    date_str = format_date_storage(target_date)
 
     weekday_ru = ['ПН', 'ВТ', 'СР', 'ЧТ', 'ПТ', 'СБ', 'ВС'][target_date.weekday()]
-    print(f'📅 Собираю матчи на {target_date.strftime("%d.%m.%Y")} ({weekday_ru})')
+    print(f'📅 Собираю матчи на {format_date_display(target_date)} ({weekday_ru})')
 
     # ── Футбол ──
     football_leagues = []
@@ -532,7 +533,7 @@ def main():
                     })
         import storage as _st
         _st.add_date('/tmp/upcoming_matches.json',
-                     target_date.strftime('%Y%m%d'),
+                     format_date_storage(target_date),
                      upcoming_for_preds)
         print(f'💾 Сохранено {len(upcoming_for_preds)} матчей для прогнозов в /tmp/upcoming_matches.json')
     except Exception as _e:

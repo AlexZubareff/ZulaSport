@@ -47,11 +47,30 @@ LEAGUE_LOGOS = {
     'РПЛ': '/static/leagues/рпл.png',
     'НХЛ': '/static/leagues/нхл.png',
     'NBA': '/static/leagues/nba.png',
+    'ATP': '/static/leagues/atp.png',
+    'WTA': '/static/leagues/wta.png',
 }
 
 LOGO_LEAGUES = set(LEAGUE_LOGOS.keys())
 
 EMOJI_MAP = {'football': '⚽', 'hockey': '🏒', 'basketball': '🏀', 'tennis': '🎾'}
+
+# Маппинг лиг на эмодзи (для лиг без лого)
+LEAGUE_EMOJI = {
+    'ATP': '🎾',
+    'WTA': '🎾',
+    'АПЛ': '⚽',
+    'Ла Лига': '⚽',
+    'Серия А': '⚽',
+    'Бундеслига': '⚽',
+    'Лига 1': '⚽',
+    'РПЛ': '⚽',
+    'Лига Чемпионов': '⚽',
+    'Лига Европы': '⚽',
+    'Лига Конференций': '⚽',
+    'НХЛ': '🏒',
+    'NBA': '🏀',
+}
 
 
 # ─── Хелперы ────────────────────────────────────────────────────────
@@ -69,21 +88,127 @@ def _normalize(name):
     return nfkd.encode('ASCII', 'ignore').decode().lower().strip()
 
 
-def _team_logo(team_name):
+# ─── Флаги стран (для национальных сборных) ────────────────────────
+_COUNTRY_FLAGS = {
+    'Австрия': 'at', 'Азербайджан': 'az', 'Албания': 'al', 'Алжир': 'dz',
+    'Англия': 'gb-eng', 'Аргентина': 'ar', 'Армения': 'am',
+    'Беларусь': 'by', 'Бельгия': 'be', 'Болгария': 'bg', 'Бразилия': 'br',
+    'Великобритания': 'gb', 'Венгрия': 'hu',
+    'Германия': 'de', 'Греция': 'gr', 'Грузия': 'ge',
+    'Дания': 'dk',
+    'Египет': 'eg',
+    'Израиль': 'il', 'Индия': 'in', 'Ирландия': 'ie', 'Исландия': 'is',
+    'Испания': 'es', 'Италия': 'it',
+    'Казахстан': 'kz', 'Камерун': 'cm', 'Канада': 'ca', 'Катар': 'qa',
+    'Китай': 'cn', 'Колумбия': 'co', 'Коста-Рика': 'cr',
+    'Латвия': 'lv', 'Литва': 'lt',
+    'Мексика': 'mx', 'Марокко': 'ma',
+    'Нигерия': 'ng', 'Нидерланды': 'nl', 'Норвегия': 'no',
+    'Панама': 'pa', 'Перу': 'pe', 'Польша': 'pl', 'Португалия': 'pt',
+    'Россия': 'ru', 'Румыния': 'ro',
+    'Саудовская Аравия': 'sa', 'Сенегал': 'sn', 'Сербия': 'rs',
+    'Словакия': 'sk', 'Словения': 'si', 'США': 'us',
+    'Тунис': 'tn', 'Турция': 'tr',
+    'Узбекистан': 'uz', 'Украина': 'ua', 'Уругвай': 'uy',
+    'Финляндия': 'fi', 'Франция': 'fr',
+    'Хорватия': 'hr',
+    'Черногория': 'me', 'Чехия': 'cz',
+    'Швейцария': 'ch', 'Швеция': 'se',
+    'Эстония': 'ee', 'ЮАР': 'za', 'Япония': 'jp',
+}
+
+_team_logo_cache = {}
+_team_logo_db = None
+
+def _team_logo(team_name, league=None):
+    """Найти лого команды: сперва кеш → флаг страны → БД (с лигой) → team_logos.json.
+    
+    Args:
+        team_name: название команды
+        league: лига (для разрешения коллизий, напр. "Локомотив" в РПЛ vs КХЛ)
+    """
+    global _team_logo_db
     if not team_name:
         return ''
-    norm = _normalize(team_name)
-    for key, info in _TEAM_LOGOS.items():
-        if _normalize(key) == norm:
-            return info.get('src', '') if isinstance(info, dict) else info
-    return ''
+    
+    cache_key = f'{team_name}||{league or ""}'
+    if cache_key in _team_logo_cache:
+        return _team_logo_cache[cache_key]
+    
+    result = ''
+    
+    # 1. Флаг страны (для национальных сборных)
+    iso = _COUNTRY_FLAGS.get(team_name)
+    if iso:
+        flag_path = f'/static/logos/flags/{iso}.png'
+        if os.path.exists('/var/www/sport' + flag_path):
+            result = flag_path
+            _team_logo_cache[cache_key] = result
+            return result
+    
+    # 2. БД — сперва с лигой, потом без неё
+    if _team_logo_db is None:
+        try:
+            from db import team_resolve, execute_one
+            _team_logo_db = team_resolve
+            _team_logo_db2 = lambda n, l: execute_one(
+                "SELECT t.* FROM teams t JOIN team_aliases a ON a.team_id = t.id "
+                "WHERE a.alias = %s AND t.league = %s",
+                (n.lower().strip(), l)
+            ) or execute_one(
+                "SELECT * FROM teams WHERE canonical_name = %s AND league = %s",
+                (n.strip(), l)
+            )
+            _team_logo_by_league = _team_logo_db2
+        except:
+            _team_logo_db = False
+            _team_logo_by_league = False
+    
+    if _team_logo_db:
+        if league:
+            # С лигой (точное совпадение)
+            t = _team_logo_db(team_name, league)
+            if t and t.get('logo_url') and t['logo_url'].startswith('/static/'):
+                result = t['logo_url']
+        if not result:
+            # Без лиги (fallback)
+            t = _team_logo_db(team_name)
+            if t and t.get('logo_url') and t['logo_url'].startswith('/static/'):
+                result = t['logo_url']
+    
+    # 3. team_logos.json (точное совпадение)
+    if not result:
+        info = _TEAM_LOGOS.get(team_name)
+        if isinstance(info, dict):
+            result = info.get('url') or info.get('src', '')
+        elif isinstance(info, str):
+            result = info
+    
+    # 4. По ru-полю
+    if not result:
+        for key, info in _TEAM_LOGOS.items():
+            if isinstance(info, dict) and info.get('ru') == team_name:
+                result = info.get('url') or info.get('src', '')
+                break
+    
+    # 5. Нормализованное совпадение (латиница)
+    if not result:
+        norm = _normalize(team_name)
+        if norm:
+            for key, info in _TEAM_LOGOS.items():
+                if _normalize(key) == norm:
+                    result = info.get('url') or info.get('src', '') if isinstance(info, dict) else info
+                    break
+    
+    _team_logo_cache[cache_key] = result
+    return result
 
 
 def league_logo_html(league):
     url = LEAGUE_LOGOS.get(league)
     if url:
         return f'<img class="league-logo" src="{url}" alt="" loading="lazy">'
-    emoji = EMOJI_MAP.get('football', '⚽')
+    emoji = LEAGUE_EMOJI.get(league, '⚽')
     return emoji
 
 
@@ -91,6 +216,83 @@ def section_header(league, sport='football'):
     """Собрать section-sub с логотипом лиги."""
     logo_html = league_logo_html(league)
     return f'<div class="section-sub">{logo_html} {escape(league)}</div>'
+
+
+def render_match_card(home, away, league, status, match_time='', score='',
+                       home_logo='', away_logo='',
+                       has_pred=False, pred_result=None,
+                       data_key=''):
+    """
+    Единая карточка матча для всех страниц.
+    Использует оригинальные CSS-классы (up-card-v1, up-v1-grid, ...).
+    
+    status: 'scheduled' | 'live' | 'finished'
+    pred_result: 'correct' | 'incorrect' | None
+    """
+    h_logo = f'<img class="rl-logo" src="{home_logo}" alt="" loading="lazy" onerror="this.style.display=\'none\'">' if home_logo else ''
+    a_logo = f'<img class="rl-logo" src="{away_logo}" alt="" loading="lazy" onerror="this.style.display=\'none\'">' if away_logo else ''
+    
+    data_attr = f' data-match-key="{escape(data_key)}"' if data_key else ''
+    card_class = 'up-card up-card-v1'
+    right_col = ''
+    
+    if status == 'finished':
+        card_class += ' finished-card up-v1-finished'
+        parts = score.split(':')
+        h_score = parts[0].strip() if len(parts) >= 1 else ''
+        a_score = parts[1].strip() if len(parts) >= 2 else ''
+        
+        right_extra = ''
+        if pred_result == 'correct':
+            right_extra = '<span class="pred-result pred-correct">✓</span>'
+        elif pred_result == 'incorrect':
+            right_extra = '<span class="pred-result pred-incorrect">✗</span>'
+        
+        return f'''
+<div class="{card_class}" {data_attr}>
+    <div class="up-v1-grid">
+        <div class="up-v1-left">
+            <div class="up-v1-row">
+                <span class="up-v1-team-row">{h_logo}<span class="up-v1-name">{escape(home)}</span></span>
+                <span class="up-v1-team-score">{escape(h_score)}</span>
+            </div>
+            <div class="up-v1-row up-v1-row-away">
+                <span class="up-v1-team-row">{a_logo}<span class="up-v1-name">{escape(away)}</span></span>
+                <span class="up-v1-team-score">{escape(a_score)}</span>
+            </div>
+        </div>
+        <div class="up-v1-right">{right_extra}</div>
+    </div>
+</div>'''
+    else:  # scheduled / live
+
+        if status == 'live':
+            card_class += ' up-v1-live-card'
+            right_inner = '<div class="up-v1-live-badge">LIVE</div><div class="up-v1-score">' + escape(score) + '</div>'
+        else:
+            right_parts = []
+            if match_time:
+                right_parts.append(f'<div class="up-v1-time">{escape(match_time)}</div>')
+            if has_pred:
+                right_parts.append(f'<div class="up-v1-predict-btn" onclick="openPrediction(\'{escape(league)}\', \'{escape(home)}\', \'{escape(away)}\')">Прогноз</div>')
+            right_inner = '\n            '.join(right_parts)
+        
+        return f'''
+<div class="{card_class}" {data_attr}>
+    <div class="up-v1-grid">
+        <div class="up-v1-left">
+            <div class="up-v1-row">
+                <span class="up-v1-team-row">{h_logo}<span class="up-v1-name">{escape(home)}</span></span>
+            </div>
+            <div class="up-v1-row up-v1-row-away">
+                <span class="up-v1-team-row">{a_logo}<span class="up-v1-name">{escape(away)}</span></span>
+            </div>
+        </div>
+        <div class="up-v1-right">
+            {right_inner}
+        </div>
+    </div>
+</div>'''
 
 
 def format_accuracy(correct, total):
@@ -199,7 +401,12 @@ a { color: inherit; text-decoration: none; }
     border: 1px solid #2a3a4a;
 }
 .up-v1-grid { display: flex; gap: 14px; justify-content: space-between; }
-.up-v1-left { min-width: 0; }
+.up-v1-left { min-width: 0; flex: 1; }
+
+/* Finished: напротив каждой команды — её счёт */
+.up-v1-finished .up-v1-left .up-v1-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.up-v1-team-score { font-size: 22px; font-weight: 800; color: #00e676; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
 .up-v1-right {
     display: flex; flex-direction: column; align-items: center;
     justify-content: center; gap: 6px; flex-shrink: 0;
@@ -252,8 +459,7 @@ a { color: inherit; text-decoration: none; }
         gap: 10px;
     }
     .card-grid .section-sub { grid-column: 1 / -1; margin-bottom: 4px; }
-    .card-grid .up-card,
-    .card-grid .result-card { margin-bottom: 0; }
+    .card-grid .up-card { margin-bottom: 0; }
 }
 
 /* Live / finished score */
@@ -277,24 +483,7 @@ a { color: inherit; text-decoration: none; }
 }
 
 /* Result card */
-.result-card {
-    background: linear-gradient(135deg, #1a3a1a, #1a1a1a);
-    border: 1px solid #2a4a2a;
-    border-radius: 12px;
-    padding: 10px 14px;
-    margin-bottom: 8px;
-}
-.rc-row {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 4px 0;
-}
-.rc-row-away { border-top: 1px solid #2a4a2a; margin-top: 4px; padding-top: 8px; }
-.rc-left { display: flex; align-items: center; gap: 6px; }
-.rc-name { font-size: 14px; font-weight: 600; color: #fff; }
-.rc-sc { font-size: 18px; font-weight: 800; color: #00e676; font-variant-numeric: tabular-nums; }
 .rl-logo { width: 20px; height: 20px; object-fit: contain; flex-shrink: 0; }
-.rc-games {
-    font-size: 14px; color: #fff; font-weight: 500;
     font-variant-numeric: tabular-nums;
     letter-spacing: 3px;
     flex: 1; text-align: right;
@@ -447,7 +636,7 @@ a { color: inherit; text-decoration: none; }
     font-size: 11px; font-weight: 600;
     text-transform: uppercase; letter-spacing: 1px;
     cursor: pointer;
-}}
+}
 .p-btn:hover { background: rgba(0,230,118,0.2); }
 
 .p-txt {
@@ -479,9 +668,7 @@ a { color: inherit; text-decoration: none; }
     .up-v1-tv { font-size: 11px; }
     .rl-logo { width: 16px; height: 16px; }
 
-    .result-card { padding: 8px 10px; }
-    .rc-sc { font-size: 16px; }
-    .rc-name { font-size: 16px; }
+    
 
     .news-row { flex-direction: column; padding: 10px; }
     .news-img { width: 100%; height: 140px; }
@@ -501,12 +688,13 @@ a { color: inherit; text-decoration: none; }
 
     .footer { font-size: 12px; padding: 14px 0; }
 }
-'''
 
 # ═══════════════════════════════════════════════════════════════════
 # HTML-компоненты
 # ═══════════════════════════════════════════════════════════════════
 
+
+'''
 
 def page_header(title, active_page, now_str):
     """Общий header + навигация."""
@@ -532,16 +720,14 @@ def page_header(title, active_page, now_str):
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="refresh" content="300">
 <title>{escape(title)} — Zula Спорт</title>
-<style>{CSS}</style>
+<link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <div class="container">
 
     <div class="header">
-        <div>
-            <h1>🌀 Zula <span>Спорт</span></h1>
-            <div class="update">Обновлено: {escape(now_str)} МСК</div>
-        </div>
+        <h1>🌀 Zula <span>Спорт</span></h1>
+        <div class="update">Обновлено: {escape(now_str)} МСК</div>
     </div>
 
     <div class="nav">{nav_html}</div>'''
@@ -620,144 +806,6 @@ JS_PLACEHOLDER
 # ═══════════════════════════════════════════════════════════════════
 
 def page_script(news_json_escaped='{}', pred_json_escaped='{}'):
-    return f'''
-<script id="news-data" type="application/json">{news_json_escaped}</script>
+    return f'''<script id="news-data" type="application/json">{news_json_escaped}</script>
 <script id="pred-data" type="application/json">{pred_json_escaped}</script>
-<script>
-// ─── Article Modal ────────────────────────────────────────────────
-const ARTICLE_DATA = (function() {{
-    try {{ return JSON.parse(document.getElementById('news-data').textContent); }} catch(e) {{ return []; }}
-}})();
-
-function escapeHtml(str) {{
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
-}}
-
-function openArticle(idx) {{
-    const article = ARTICLE_DATA[idx];
-    if (!article) return;
-
-    let bodyHtml = '';
-    if (article.content_ru) {{
-        const paragraphs = article.content_ru.split('\\\\n').filter(function(p) {{ return p.trim(); }});
-        bodyHtml = paragraphs.map(function(p) {{ return '<p>' + escapeHtml(p.trim()) + '</p>'; }}).join('');
-        bodyHtml += '<p style="color:#555;font-size:12px;margin-top:16px;border-top:1px solid #2a2a2a;padding-top:12px">🌐 Перевод с оригинала</p>';
-    }} else if (article.content) {{
-        bodyHtml = article.content;
-    }} else {{
-        bodyHtml = '<p>' + escapeHtml(article.desc) + '</p>';
-        if (article.desc && article.desc.length < 100) {{
-            bodyHtml += '<p style="color:#666;margin-top:12px;font-size:13px">⚠️ Полный текст временно недоступен</p>';
-        }}
-    }}
-
-    document.getElementById('modal-source').textContent = article.source;
-    document.getElementById('modal-time').textContent = article.time;
-    document.getElementById('modal-body').innerHTML = bodyHtml;
-    document.getElementById('modal-body').querySelectorAll('img').forEach(function(img) {{
-        img.onerror = function() {{ this.style.display = 'none'; }};
-    }});
-    document.getElementById('modal-source-link').href = article.link;
-    document.getElementById('article-modal').classList.add('active');
-    document.body.style.overflow = 'hidden';
-}}
-
-function closeArticle() {{
-    document.getElementById('article-modal').classList.remove('active');
-    document.body.style.overflow = '';
-}}
-
-document.getElementById('article-modal').addEventListener('click', function(e) {{
-    if (e.target === this) closeArticle();
-}});
-document.addEventListener('keydown', function(e) {{
-    if (e.key === 'Escape') closeArticle();
-}});
-
-// ─── Prediction Modal ────────────────────────────────────────────
-const PRED_DATA = (function() {{
-    try {{ return JSON.parse(document.getElementById('pred-data').textContent); }} catch(e) {{ return {{}}; }}
-}})();
-
-function openPrediction(league, home, away) {{
-    const key = league + '||' + home + '||' + away;
-    const pred = PRED_DATA[key];
-    if (!pred) return;
-
-    document.getElementById('pred-league').innerHTML = (new Map([['АПЛ','🇬🇧'],['Ла Лига','🇪🇸'],['Серия А','🇮🇹'],['Бундеслига','🇩🇪'],['Лига 1','🇫🇷'],['РПЛ','🇷🇺']]).get(pred.league) || '⚽') + ' ' + pred.league;
-    document.getElementById('pred-teams').innerHTML = '<div>' + (pred.home_logo ? '<img src="' + pred.home_logo + '" style="width:18px;height:18px;vertical-align:middle;margin-right:6px">' : '') + '<span style="vertical-align:middle;font-size:16px;color:#fff">' + pred.home + '</span></div><div style="margin-top:2px">' + (pred.away_logo ? '<img src="' + pred.away_logo + '" style="width:18px;height:18px;vertical-align:middle;margin-right:6px">' : '') + '<span style="vertical-align:middle;font-size:16px;color:#ccc">' + pred.away + '</span></div><div style="font-size:11px;color:#888;margin-top:6px">' + (pred.time || '') + '</div>';
-
-    let h = renderPrediction(pred);
-    document.getElementById('pred-body').innerHTML = h;
-    document.getElementById('pred-modal').classList.add('active');
-    document.body.style.overflow = 'hidden';
-}}
-
-function renderPrediction(pred) {{
-    let h = '';
-    h += '<div style="background:linear-gradient(135deg,#1e3a1e,#2a5a2a);border-radius:12px;padding:16px;text-align:center;margin-bottom:16px">';
-    h += '<div style="font-size:20px;font-weight:700;color:#00e676">' + escapeHtml(pred.home) + ' — ' + escapeHtml(pred.away) + '</div>';
-    if (pred.glicko) {{
-        h += '<div style="margin-top:10px;display:flex;gap:6px;font-size:12px">';
-        h += '<div style="flex:1;background:rgba(0,0,0,0.3);border-radius:6px;padding:6px;color:#aaa"><div>' + escapeHtml(pred.home) + '</div><div style="font-size:16px;font-weight:700;color:#fff">' + Math.round(pred.glicko.home_prob * 100) + '%</div></div>';
-        h += '<div style="flex:1;background:rgba(0,0,0,0.3);border-radius:6px;padding:6px;color:#aaa"><div>Ничья</div><div style="font-size:16px;font-weight:700;color:#ffd700">' + Math.round(pred.glicko.draw_prob * 100) + '%</div></div>';
-        h += '<div style="flex:1;background:rgba(0,0,0,0.3);border-radius:6px;padding:6px;color:#aaa"><div>' + escapeHtml(pred.away) + '</div><div style="font-size:16px;font-weight:700;color:#fff">' + Math.round(pred.glicko.away_prob * 100) + '%</div></div>';
-        h += '</div>';
-    }}
-    h += '</div>';
-
-    if (pred.glicko) {{
-        let hr = Math.round(pred.glicko.home_rating || 0);
-        let ar = Math.round(pred.glicko.away_rating || 0);
-        let hx = pred.glicko.home_xg ? pred.glicko.home_xg.toFixed(2) : '';
-        let ax = pred.glicko.away_xg ? pred.glicko.away_xg.toFixed(2) : '';
-        if (hr || ar) {{
-            h += '<div style="margin:0 0 10px;display:flex;align-items:center">';
-            h += '<div style="flex:1;text-align:left;padding:0 12px"><div style="font-size:11px;color:#888">' + escapeHtml(pred.home) + '</div><div style="font-size:18px;font-weight:700;color:#fff">' + hr + '</div></div>';
-            h += '<div style="text-align:center;line-height:1.2"><div style="font-size:9px;color:#666;text-transform:uppercase;letter-spacing:0.5px">Рейтинг</div><div style="font-size:9px;color:#666;text-transform:uppercase;letter-spacing:0.5px">Glicko</div></div>';
-            h += '<div style="flex:1;text-align:right;padding:0 12px"><div style="font-size:11px;color:#888">' + escapeHtml(pred.away) + '</div><div style="font-size:18px;font-weight:700;color:#fff">' + ar + '</div></div>';
-            h += '</div>';
-        }}
-        if (hx || ax) {{
-            h += '<div style="margin:0 0 10px;display:flex;align-items:center">';
-            h += '<div style="flex:1;text-align:left;padding:0 12px"><div style="font-size:11px;color:#888">' + escapeHtml(pred.home) + '</div><div style="font-size:18px;font-weight:700;color:#00e676">' + hx + '</div></div>';
-            h += '<div style="text-align:center;line-height:1.2"><div style="font-size:9px;color:#666;text-transform:uppercase;letter-spacing:0.5px">Ожидаемые</div><div style="font-size:9px;color:#666;text-transform:uppercase;letter-spacing:0.5px">голы (xG)</div></div>';
-            h += '<div style="flex:1;text-align:right;padding:0 12px"><div style="font-size:11px;color:#888">' + escapeHtml(pred.away) + '</div><div style="font-size:18px;font-weight:700;color:#00e676">' + ax + '</div></div>';
-            h += '</div>';
-        }}
-    }}
-
-    let odds = pred.odds || {{}};
-    let totals = pred.totals || {{}};
-    if (odds.home || odds.draw || odds.away || totals.over || totals.under) {{
-        h += '<div style="margin-bottom:14px;display:flex;gap:8px;flex-wrap:wrap;justify-content:center">';
-        if (odds.home) h += '<div style="background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;padding:6px 12px;text-align:center;min-width:60px"><div style="font-size:10px;color:#888;text-transform:uppercase">П1</div><div style="font-size:15px;font-weight:700;color:#fff">' + odds.home + '</div></div>';
-        if (odds.draw) h += '<div style="background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;padding:6px 12px;text-align:center;min-width:60px"><div style="font-size:10px;color:#888;text-transform:uppercase">X</div><div style="font-size:15px;font-weight:700;color:#ffd700">' + odds.draw + '</div></div>';
-        if (odds.away) h += '<div style="background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;padding:6px 12px;text-align:center;min-width:60px"><div style="font-size:10px;color:#888;text-transform:uppercase">П2</div><div style="font-size:15px;font-weight:700;color:#fff">' + odds.away + '</div></div>';
-        if (totals.over) h += '<div style="background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;padding:6px 12px;text-align:center;min-width:60px"><div style="font-size:10px;color:#888;text-transform:uppercase">ТБ ' + (totals.total_line || 2.5) + '</div><div style="font-size:15px;font-weight:700;color:#00e676">' + totals.over + '</div></div>';
-        if (totals.under) h += '<div style="background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;padding:6px 12px;text-align:center;min-width:60px"><div style="font-size:10px;color:#888;text-transform:uppercase">ТМ ' + (totals.total_line || 2.5) + '</div><div style="font-size:15px;font-weight:700;color:#ff9800">' + totals.under + '</div></div>';
-        h += '</div>';
-    }}
-
-    if (pred.prediction_text) {{
-        h += '<div style="background:#1a1a1a;border:1px solid #2a2a2a;border-radius:10px;padding:14px;font-size:14px;line-height:1.7;color:#ccc">' + pred.prediction_text + '</div>';
-    }}
-    return h;
-}}
-
-function closePrediction() {{
-    document.getElementById('pred-modal').classList.remove('active');
-    document.body.style.overflow = '';
-}}
-document.getElementById('pred-modal').addEventListener('click', function(e) {{
-    if (e.target === this) closePrediction();
-}});
-
-// ─── Stats Modal ──────────────────────────────────────────────────
-function closeStats() {{
-    document.getElementById('stats-modal').classList.remove('active');
-    document.body.style.overflow = '';
-}}
-</script>'''
+<script src="/static/app.js"></script>'''
