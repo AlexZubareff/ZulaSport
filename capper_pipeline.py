@@ -887,6 +887,64 @@ def _load_matches():
     return []
 
 
+def _batch_process_matches(matches, fetch_fs=True, fetch_lineups=False):
+    """
+    Обработать список матчей с одним Playwright-браузером.
+    При ошибке браузера — fallback на отдельные браузеры для каждого матча.
+    """
+    from playwright.sync_api import sync_playwright
+
+    predictions = []
+    browser = None
+
+    try:
+        p_ctx = sync_playwright()
+        p_ctx.__enter__()
+        browser = p_ctx.chromium.launch(headless=True, args=['--no-sandbox'])
+    except Exception as e:
+        print(f'  ⚠️ Не удалось запустить Playwright: {e}')
+        # Fallback: последовательный режим
+        for i, m in enumerate(matches):
+            start_t = time_module.time()
+            pred = process_match(m, fetch_fs=fetch_fs, fetch_lineups_flag=fetch_lineups)
+            if pred:
+                predictions.append(pred)
+            elapsed = time_module.time() - start_t
+            print(f'  [{i+1}/{len(matches)}] {m.get("home","?")} — {m.get("away","?")} {elapsed:.1f}с (fallback)')
+        return predictions
+
+    try:
+        for i, m in enumerate(matches):
+            start_t = time_module.time()
+            try:
+                page = browser.new_page(viewport={'width': 1920, 'height': 1080})
+                page.set_default_timeout(20000)
+            except Exception as e:
+                print(f'  ⚠️ Ошибка матча [{i+1}]: {e}')
+                # Fallback: без Playwright для этого матча
+                pred = process_match(m, fetch_fs=fetch_fs, fetch_lineups_flag=False, pw_page=None)
+            if pred:
+                predictions.append(pred)
+            elapsed = time_module.time() - start_t
+            print(f'  [{i+1}/{len(matches)}] {m.get("home","?")} — {m.get("away","?")} {elapsed:.1f}с')
+            print(f'  [{i+1}/{len(matches)}] {m.get("home","?")} — {m.get("away","?")} {elapsed:.1f}с')
+            # Сохраняем инкрементально после каждых 3 матчей
+            if i % 3 == 2 or i == len(matches) - 1:
+                pass  # caller сохранит финальный результат
+    finally:
+        if browser:
+            try:
+                browser.close()
+            except:
+                pass
+        try:
+            p_ctx.__exit__(None, None, None)
+        except:
+            pass
+
+    return predictions
+
+
 def batch_generate():
     """Полная генерация прогнозов на все матчи."""
     matches = _load_matches()
@@ -905,16 +963,10 @@ def batch_generate():
         assert isinstance(m.get('away'), str), f'away должно быть str: {m}'
 
     print(f'📊 Прогнозов: {len(matches)}')
-    predictions = []
-    for i, m in enumerate(matches):
-        pred = process_match(m, fetch_fs=True, fetch_lineups_flag=False)
-        if pred:
-            predictions.append(pred)
-        # Сохраняем инкрементально после каждых 3 матчей
-        if i % 3 == 2 or i == len(matches) - 1:
-            _save_predictions(predictions)
-            print(f'  💾 сохранено {len(predictions)}/{len(matches)}')
+    predictions = _batch_process_matches(matches, fetch_fs=True, fetch_lineups=False)
 
+    # Финальное сохранение
+    _save_predictions(predictions)
     print(f'\n✅ Всего: {len(predictions)} прогнозов')
     _run_post_generate_check(predictions, 'predictions_data')
 
@@ -942,9 +994,9 @@ def batch_refresh():
                     existing[(p.get('league',''), p.get('home',''), p.get('away',''))] = p
         except: pass
 
-    refreshed = []
+    # Отбираем матчи, до которых <= 1 час
+    to_refresh = []
     for m in matches:
-        # Парсим время матча
         try:
             match_time_str = m.get('time', '')
             match_hour, match_min = map(int, match_time_str.split(':'))
@@ -956,12 +1008,17 @@ def batch_refresh():
 
         diff = (match_dt - now).total_seconds()
         if 0 < diff < 3900:  # ~1 час 5 минут
-            print(f'⏰ {m["home"]} — {m["away"]} через {int(diff/60)} мин, обновляю...')
-            pred = process_match(m, fetch_fs=True, fetch_lineups_flag=True)
-            if pred:
-                refreshed.append(pred)
-                key = (m.get('league',''), m.get('home',''), m.get('away',''))
-                existing[key] = pred
+            print(f'⏰ {m["home"]} — {m["away"]} через {int(diff/60)} мин')
+            to_refresh.append(m)
+
+    if not to_refresh:
+        return
+
+    refreshed = _batch_process_matches(to_refresh, fetch_fs=True, fetch_lineups=True)
+
+    for pred in refreshed:
+        key = (pred.get('league',''), pred.get('home',''), pred.get('away',''))
+        existing[key] = pred
 
     if refreshed:
         _save_predictions(list(existing.values()))
