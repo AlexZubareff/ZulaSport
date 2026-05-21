@@ -475,6 +475,24 @@ def collect_all(target_date: Optional[str] = None) -> List[Dict]:
     if total_before != len(all_matches):
         print(f'  🔄 Дедупликация: {total_before} → {len(all_matches)}')
 
+    # Фильтр по дате: если match_time содержит "дд.мм." — отсекаем матчи других дней
+    import re as _re
+    _filtered = []
+    _skipped = 0
+    for _m in all_matches:
+        _t = _m.get('match_time', _m.get('time', ''))
+        _mtch = _re.match(r'(\d{2})\.(\d{2})\.\s+', _t)
+        if _mtch:
+            _day, _month = _mtch.groups()
+            _date_in_time = f'2026-{_month}-{_day}'
+            if _date_in_time != target_date:
+                _skipped += 1
+                continue
+        _filtered.append(_m)
+    if _skipped:
+        print(f'  🗑️ Отфильтровано по дате: {_skipped} матчей с других дней')
+    all_matches = _filtered
+
     # Сохранение
     saved_db = _save_to_db(all_matches)
     _save_to_json(all_matches)
