@@ -169,18 +169,36 @@ def _parse_odds(odds_list):
 #  DATA FETCHERS
 # ═══════════════════════════════════════════════════════════════════
 
-def fetch_schedule():
+def fetch_schedule(target_date=None):
     """Загрузить расписание + результаты из /v1/schedule/now.
+    Если /schedule/now возвращает пустой ответ, пробует /schedule/{date}.
     Возвращает dict с предстоящими и завершёнными матчами.
     """
     url = f'{NHL_API}/v1/schedule/now'
+    data = None
     try:
         resp = requests.get(url, timeout=15)
         resp.raise_for_status()
-        data = resp.json()
+        content = resp.text
+        if content and len(content) > 10:
+            data = json.loads(content)
+        else:
+            print(f'  ⚠️ /schedule/now: пустой ответ, пробую /schedule/{target_date or "now"}')
     except Exception as e:
-        print(f'  ❌ Schedule API: {e}')
-        return {'upcoming': [], 'finished': []}
+        print(f'  ⚠️ /schedule/now: {e}')
+
+    # Fallback: date-specific endpoint
+    if data is None:
+        date_param = target_date or datetime.now(UTC).strftime('%Y-%m-%d')
+        fallback_url = f'{NHL_API}/v1/schedule/{date_param}'
+        try:
+            resp = requests.get(fallback_url, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+            print(f'  ✅ Fallback /v1/schedule/{date_param}')
+        except Exception as e:
+            print(f'  ❌ Schedule API: {e}')
+            return {'upcoming': [], 'finished': []}
 
     upcoming = []
     finished = []

@@ -131,9 +131,17 @@ def ru(name):
 
 
 # ─── SStats ─────────────────────────────────────────────────────────
+def _sstats_year() -> int:
+    """Определить год для SStats API (спортивный сезон)."""
+    now = datetime.now(UTC)
+    if now.month >= 8:
+        return now.year
+    return now.year - 1
+
+
 def fetch_sstats_upcoming(lid, target_date):
     """Предстоящие матчи лиги на указанную дату через SStats API."""
-    url = f'https://api.sstats.net/Games/list?apikey={SSTATS_KEY}&LeagueId={lid}&Year=2025&take=500'
+    url = f'https://api.sstats.net/Games/list?apikey={SSTATS_KEY}&LeagueId={lid}&Year={_sstats_year()}&take=500'
     try:
         resp = requests.get(url, timeout=15)
         data = resp.json()

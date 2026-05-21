@@ -41,6 +41,17 @@ if not SSTATS_KEY:
     except:
         pass
 
+# Текущий спортивный сезон для SStats
+# В январе–июле используем прошлый год (сезон XX/XX+1),
+# с августа — текущий (сезон XX+1/XX+2)
+def _sstats_year() -> int:
+    now = datetime.now(UTC) + MOW
+    # Если август и позже — используем текущий год (начало нового сезона)
+    # Иначе — прошлый (сезон только начался в прошлом году)
+    if now.month >= 8:
+        return now.year
+    return now.year - 1
+
 # Активные лиги (общие для всех источников)
 PRED_LEAGUES_PATH = '/opt/prediction_leagues.json'
 _ACTIVE_LEAGUES = {}
@@ -107,7 +118,7 @@ def _fetch_sstats(lid: int, target_date: str) -> List[Dict]:
         import requests
         resp = requests.get(
             f'https://api.sstats.net/Games/list',
-            params={'apikey': SSTATS_KEY, 'LeagueId': lid, 'Year': 2025, 'take': 500},
+            params={'apikey': SSTATS_KEY, 'LeagueId': lid, 'Year': _sstats_year(), 'take': 500},
             timeout=15,
         )
         data = resp.json()
@@ -155,7 +166,8 @@ def _fetch_nhl(target_date: str) -> List[Dict]:
     try:
         from fetch_nhl_data import fetch_schedule
         from nhl_api import ru as nhl_ru
-        nhl_data = fetch_schedule()
+        # Используем target_date для fallback-эндпоинта
+        nhl_data = fetch_schedule(target_date=target_date)
     except Exception as e:
         print(f'  ⚠️ NHL: {e}')
         return []
