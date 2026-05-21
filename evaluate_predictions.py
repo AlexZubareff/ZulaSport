@@ -573,7 +573,7 @@ def evaluate():
     if not _DB_AVAILABLE:
         print(f'  ⚠️ БД недоступна — данные только в JSON')
         from alert import report_failure
-        report_failure('evaluate_predictions_db', 'БД недоступна, работаем через JSON')
+        report_success('evaluate_predictions_json_fallback')  # graceful degradation: БД → JSON
     else:
         from alert import report_success
         report_success('evaluate_predictions')

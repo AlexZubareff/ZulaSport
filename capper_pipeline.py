@@ -408,8 +408,8 @@ def find_similar_predictions(match_info, sstats_data, top_k=3):
         r = p.get('result')
         if not r or not isinstance(r, dict):
             continue
-        win_ok = r.get('win', {}).get('correct') is True
-        total_ok = r.get('total', {}).get('correct') is True
+        win_ok = (r.get('win') or {}).get('correct') is True
+        total_ok = (r.get('total') or {}).get('correct') is True
         if not (win_ok or total_ok):
             continue
         if p.get('league') and p.get('league') != league:
@@ -872,8 +872,22 @@ def _load_matches():
                         })
         return matches
 
-    # Пробуем upcoming_matches.json (приоритет)
-    matches = _flatten('/tmp/upcoming_matches.json', is_upcoming=True)
+    # Пробуем upcoming_matches.json (приоритет) — в разных форматах
+    import json as _ujson
+    _upcoming_path = '/tmp/upcoming_matches.json'
+    matches = _flatten(_upcoming_path, is_upcoming=True)
+    if not matches and os.path.exists(_upcoming_path):
+        # Формат {matches: [...]} — прямой массив
+        try:
+            with open(_upcoming_path, encoding='utf-8') as _f:
+                _ud = json.load(_f)
+            _raw = _ud.get('matches', [])
+            matches = [
+                m for m in _raw
+                if m.get('league') in active and m.get('game_id')
+            ]
+        except:
+            pass
     if matches:
         print(f'📖 upcoming_matches.json: {len(matches)} матчей')
         return matches
@@ -899,8 +913,8 @@ def _batch_process_matches(matches, fetch_fs=True, fetch_lineups=False):
     browser = None
 
     try:
-        p_ctx = sync_playwright()
-        p_ctx.__enter__()
+        _p = sync_playwright()
+        p_ctx = _p.__enter__()
         browser = p_ctx.chromium.launch(headless=True, args=['--no-sandbox'])
     except Exception as e:
         print(f'  ⚠️ Не удалось запустить Playwright: {e}')
@@ -917,17 +931,22 @@ def _batch_process_matches(matches, fetch_fs=True, fetch_lineups=False):
     try:
         for i, m in enumerate(matches):
             start_t = time_module.time()
+            _pred = None
             try:
                 page = browser.new_page(viewport={'width': 1920, 'height': 1080})
                 page.set_default_timeout(20000)
+                _pred = process_match(m, fetch_fs=fetch_fs, fetch_lineups_flag=fetch_lineups, pw_page=page)
+                page.close()
             except Exception as e:
                 print(f'  ⚠️ Ошибка матча [{i+1}]: {e}')
                 # Fallback: без Playwright для этого матча
-                pred = process_match(m, fetch_fs=fetch_fs, fetch_lineups_flag=False, pw_page=None)
-            if pred:
-                predictions.append(pred)
+                try:
+                    _pred = process_match(m, fetch_fs=fetch_fs, fetch_lineups_flag=False, pw_page=None)
+                except Exception as e2:
+                    print(f'  ❌ Fallback тоже упал: {e2}')
+            if _pred:
+                predictions.append(_pred)
             elapsed = time_module.time() - start_t
-            print(f'  [{i+1}/{len(matches)}] {m.get("home","?")} — {m.get("away","?")} {elapsed:.1f}с')
             print(f'  [{i+1}/{len(matches)}] {m.get("home","?")} — {m.get("away","?")} {elapsed:.1f}с')
             # Сохраняем инкрементально после каждых 3 матчей
             if i % 3 == 2 or i == len(matches) - 1:
