@@ -149,14 +149,14 @@ def clear_cache():
     _save_cache({})
 
 
-def batch_generate_predictions(matches, generate_one_fn, max_workers=3, force_refresh=False):
+def batch_generate_predictions(matches, generate_one_fn, max_workers=5, force_refresh=False):
     """
     Параллельная генерация прогнозов для списка матчей.
     
     Args:
         matches: список dict с home, away, league и т.д.
         generate_one_fn: функция(match_info) -> str
-        max_workers: сколько DeepSeek запросов одновременно (по умолч. 3)
+        max_workers: сколько DeepSeek запросов одновременно (по умолч. 5)
         force_refresh: пропустить кеш
     
     Returns:

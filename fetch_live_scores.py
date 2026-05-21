@@ -11,6 +11,7 @@
 """
 
 import json, os, sys, requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from data_schemas import validate
 from alert import report_success, report_failure, get_source_status
 from datetime import datetime, timedelta, timezone
@@ -398,9 +399,40 @@ def main():
     all_matches = {}
     live_matches_for_stats = []  # (key, competition_id, sport_path)
 
-    for league_name, (path, sport_type) in ESPN_PATHS.items():
-        matches, _ = fetch_league(path, date_str, sport_type)
-        print(f'  {league_name}: {len(matches)} матчей')
+    # ═══ ThreadPool 6 workers для ESPN ═══
+    _espn_results = []
+    _espn_lock = __import__('threading').Lock()
+
+    def _fetch_one_league(league_name, path, sport_type):
+        """Загрузить одну лигу из ESPN (для ThreadPool)."""
+        try:
+            matches, _ = fetch_league(path, date_str, sport_type)
+            return league_name, matches, None
+        except Exception as e:
+            return league_name, [], str(e)
+
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        futures = {
+            executor.submit(_fetch_one_league, name, path, st): name
+            for name, (path, st) in ESPN_PATHS.items()
+        }
+        for future in as_completed(futures):
+            league_name = futures[future]
+            try:
+                _, matches, error = future.result()
+                if error:
+                    print(f'  ⚠️ {league_name}: {error}')
+                    report_failure(f'espn_{league_name}', error)
+                else:
+                    print(f'  ✅ {league_name}: {len(matches)} матчей (thread)')
+                    report_success(f'espn_{league_name}')
+                    _espn_results.append((league_name, matches))
+            except Exception as e:
+                print(f'  ❌ {league_name}: {e}')
+                report_failure(f'espn_{league_name}', str(e))
+
+    # Объединяем результаты из всех потоков
+    for league_name, matches in _espn_results:
         for m in matches:
             key = f'{league_name}||{m["home"]}||{m["away"]}'
             all_matches[key] = {
