@@ -101,6 +101,29 @@ SCHEMAS = {
             'last_updated': {'type': 'string'},
         },
     },
+    'deepseek_cache': {
+        'type': 'object',
+        'required': ['_version', 'entries'],
+        'properties': {
+            '_version': {'type': 'integer'},
+            'updated_at': {'type': 'string'},
+            'entries': {
+                'type': 'object',
+                'pattern_properties': {
+                    r'^[a-f0-9]{32}$': {
+                        'type': 'object',
+                        'required': ['result', 'ts'],
+                        'properties': {
+                            'result': {'type': 'string'},
+                            'ts': {'type': 'number'},
+                            'match': {'type': 'string'},
+                        },
+                    },
+                },
+                'additionalProperties': True,
+            },
+        },
+    },
 }
 
 

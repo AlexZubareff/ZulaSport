@@ -15,6 +15,9 @@ import random
 import requests
 from playwright.sync_api import sync_playwright
 
+sys.path.insert(0, '/opt')
+from capper_common import call_deepseek_with_cache, get_cache_stats
+
 # БД (если доступна)
 try:
     import db
@@ -800,13 +803,30 @@ def process_match(match_info, fetch_fs=True, fetch_lineups_flag=False, pw_page=N
     if xgb_verdict:
         print(f'xgb {xgb_verdict["win_prediction"]} ({xgb_verdict["win_confidence"]:.0%}) ✅... ', end='', flush=True)
 
-    # 6. DeepSeek прогноз
+    # 6. DeepSeek прогноз (с кешем)
     match_info_full = {**match_info, 'home': match_info.get('home', home), 'away': match_info.get('away', away), 'home_en': ss.get('home', home), 'away_en': ss.get('away', away)}
-    pred_text = generate_prediction_text(match_info_full, ss, fs_data, lineups,
-                                          similar_preds=similar_preds, stats_block=stats_block,
-                                          xgb_verdict=xgb_verdict)
 
-    print(f'✅')
+    # Определяем, нужен ли force refresh
+    force_refresh = '--refresh' in sys.argv or '--no-cache' in sys.argv
+
+    def _do_generate():
+        return generate_prediction_text(match_info_full, ss, fs_data, lineups,
+                                         similar_preds=similar_preds, stats_block=stats_block,
+                                         xgb_verdict=xgb_verdict)
+
+    pred_text = call_deepseek_with_cache(
+        match_info={
+            'home': match_info.get('home', home),
+            'away': match_info.get('away', away),
+            'league': league,
+        },
+        sstats_data=ss,
+        generate_fn=_do_generate,
+        force_refresh=force_refresh,
+    )
+
+    if force_refresh:
+        print(f'✅ DeepSeek (force)')
     return {
         'home': match_info.get('home', home),
         'away': match_info.get('away', away),

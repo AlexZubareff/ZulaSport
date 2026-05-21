@@ -17,6 +17,7 @@ from typing import Dict, List, Optional, Tuple
 import requests
 
 sys.path.insert(0, '/opt')
+from capper_common import call_deepseek_with_cache
 
 # ─── БД ─────────────────────────────────────────────────────────────
 try:
@@ -290,40 +291,51 @@ def _build_tennis_prompt(analysis: Dict, odds_match=None) -> str:
 
 
 def generate_tennis_prediction(analysis: Dict, odds_match=None) -> str:
-    """Сгенерировать текст прогноза через DeepSeek."""
+    """Сгенерировать текст прогноза через DeepSeek (с кешем)."""
     if not DEEPSEEK_KEY:
         return _fallback_prediction(analysis, odds_match)
 
-    prompt = _build_tennis_prompt(analysis, odds_match)
-    stats_block = _build_capper_stats_tennis()
+    def _do_generate():
+        prompt = _build_tennis_prompt(analysis, odds_match)
+        stats_block = _build_capper_stats_tennis()
 
-    system_msg = ('Ты спортивный аналитик с ярким стилем. Пиши прогноз как человек, а не как отчёт. '
-                  'Без списков, заголовков, приветствий и жирного текста. '
-                  'Каждый прогноз начинай уникально. В конце чёткий вердикт на исход (кто победит).')
-    if stats_block:
-        system_msg += stats_block
+        system_msg = ('Ты спортивный аналитик с ярким стилем. Пиши прогноз как человек, а не как отчёт. '
+                      'Без списков, заголовков, приветствий и жирного текста. '
+                      'Каждый прогноз начинай уникально. В конце чёткий вердикт на исход (кто победит).')
+        if stats_block:
+            system_msg += stats_block
 
-    try:
-        resp = requests.post('https://api.deepseek.com/v1/chat/completions', json={
-            'model': 'deepseek-chat',
-            'messages': [
-                {'role': 'system', 'content': system_msg},
-                {'role': 'user', 'content': prompt}
-            ],
-            'temperature': 0.65,
-            'max_tokens': 1200
-        }, headers={'Authorization': f'Bearer {DEEPSEEK_KEY}'}, timeout=30)
-        data = resp.json()
-        if 'choices' in data and len(data['choices']) > 0:
-            text = data['choices'][0]['message']['content'].strip()
-            text = text.replace('Over', 'ТБ').replace('Under', 'ТМ')
-            text = text.replace('over', 'ТБ').replace('under', 'ТМ')
-            text = text.replace('тотал больше', 'ТБ').replace('тотал меньше', 'ТМ')
-            return text
-    except Exception as e:
-        print(f'  ⚠️ DeepSeek: {e}')
+        try:
+            resp = requests.post('https://api.deepseek.com/v1/chat/completions', json={
+                'model': 'deepseek-chat',
+                'messages': [
+                    {'role': 'system', 'content': system_msg},
+                    {'role': 'user', 'content': prompt}
+                ],
+                'temperature': 0.65,
+                'max_tokens': 1200
+            }, headers={'Authorization': f'Bearer {DEEPSEEK_KEY}'}, timeout=30)
+            data = resp.json()
+            if 'choices' in data and len(data['choices']) > 0:
+                text = data['choices'][0]['message']['content'].strip()
+                text = text.replace('Over', 'ТБ').replace('Under', 'ТМ')
+                text = text.replace('over', 'ТБ').replace('under', 'ТМ')
+                text = text.replace('тотал больше', 'ТБ').replace('тотал меньше', 'ТМ')
+                return text
+        except Exception as e:
+            print(f'  ⚠️ DeepSeek: {e}')
 
-    return _fallback_prediction(analysis, odds_match)
+        return _fallback_prediction(analysis, odds_match)
+
+    combined = analysis.get('combined', {})
+    match_info = {'home': analysis.get('home_ru', ''), 'away': analysis.get('away_ru', ''), 'league': 'Tennis'}
+    sstats_data = {
+        'odds': [{'home': combined.get('player1_prob', 0.5), 'draw': 0, 'away': combined.get('player2_prob', 0.5)}],
+        'glicko': {'home_prob': combined.get('player1_prob', 0.5), 'away_prob': combined.get('player2_prob', 0.5), 'draw_prob': 0},
+        'totals': {},
+    }
+    force_refresh = '--refresh' in sys.argv or '--no-cache' in sys.argv
+    return call_deepseek_with_cache(match_info, sstats_data, _do_generate, force_refresh=force_refresh)
 
 
 def _fallback_prediction(analysis, odds_match=None):
