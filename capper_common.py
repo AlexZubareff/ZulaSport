@@ -426,3 +426,64 @@ def build_capper_stats_block() -> str:
             tc/tt*100))
 
     return '\n' + '\n'.join(lines)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Event-driven: trigger_generate с debounce
+# ═══════════════════════════════════════════════════════════════════════
+
+_TRIGGER_DEBOUNCE = 120  # 2 минуты
+_TRIGGER_DIR = '/tmp/.trigger_stamps'
+
+
+def _trigger_stamp_path(section: str) -> str:
+    """Путь к файлу-штампу времени для секции."""
+    os.makedirs(_TRIGGER_DIR, exist_ok=True)
+    safe = section.replace('/', '_').replace('.', '_')
+    return os.path.join(_TRIGGER_DIR, f'{safe}.stamp')
+
+
+def _trigger_should_fire(section: str) -> bool:
+    """Проверить, нужно ли запускать генерацию (debounce)."""
+    stamp = _trigger_stamp_path(section)
+    try:
+        if os.path.exists(stamp):
+            with open(stamp) as f:
+                last_ts = float(f.read().strip())
+            if time.time() - last_ts < _TRIGGER_DEBOUNCE:
+                return False  # debounce — не прошло 2 мин
+        with open(stamp, 'w') as f:
+            f.write(str(time.time()))
+        return True
+    except Exception:
+        return True
+
+
+def trigger_generate(section: str):
+    """
+    Асинхронно запустить generate_site.py для секции.
+
+    Debounce: не чаще 1 раза в {_TRIGGER_DEBOUNCE} секунд
+    для каждой секции (отдельный файл-штамп).
+
+    Args:
+        section: 'schedule', 'predictions', 'results', 'all'
+    """
+    import subprocess
+
+    if not _trigger_should_fire(section):
+        print(f'  ⏳ trigger_generate({section}): debounce (пропускаем)')
+        return False
+
+    try:
+        subprocess.Popen(
+            ['python3', '/opt/generate_site.py', '--section', section],
+            cwd='/opt',
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        print(f'  🚀 trigger_generate({section}): запущен в фоне')
+        return True
+    except Exception as e:
+        print(f'  ❌ trigger_generate({section}): {e}')
+        return False
