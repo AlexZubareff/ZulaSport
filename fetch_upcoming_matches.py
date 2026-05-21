@@ -469,29 +469,41 @@ def collect_all(target_date: Optional[str] = None) -> List[Dict]:
             else:
                 print(f'  ⚠️ {task_type}/{name}: 0 матчей')
 
-    # Дедупликация
-    total_before = len(all_matches)
-    all_matches = _dedup(all_matches)
-    if total_before != len(all_matches):
-        print(f'  🔄 Дедупликация: {total_before} → {len(all_matches)}')
-
-    # Фильтр по дате: если match_time содержит "дд.мм." — отсекаем матчи других дней
+    # Сначала фильтр по дате (до дедупликации — чтобы сохранить матчи с правильной датой)
     import re as _re
     _filtered = []
     _skipped = 0
     for _m in all_matches:
-        _t = _m.get('match_time', _m.get('time', ''))
+        _t = _m.get('time', _m.get('match_time', ''))
         _mtch = _re.match(r'(\d{2})\.(\d{2})\.\s+', _t)
         if _mtch:
             _day, _month = _mtch.groups()
             _date_in_time = f'2026-{_month}-{_day}'
-            if _date_in_time != target_date:
+            if _date_in_time != date_str:
                 _skipped += 1
                 continue
         _filtered.append(_m)
     if _skipped:
         print(f'  🗑️ Отфильтровано по дате: {_skipped} матчей с других дней')
     all_matches = _filtered
+
+    # Дедупликация (уже после фильтра даты — не будет конфликтов ключей)
+    total_before = len(all_matches)
+    all_matches = _dedup(all_matches)
+    if total_before != len(all_matches):
+        print(f'  🔄 Дедупликация: {total_before} → {len(all_matches)}')
+    import re as _re
+    for _m in all_matches:
+        _t = _m.get('time', _m.get('match_time', ''))
+        try:
+            _clean = _re.sub(r'^\d{2}\.\d{2}\.\s*', '', _t).strip()
+            _parts = _clean.split(':')
+            if len(_parts) == 2:
+                _h, _min = int(_parts[0]), int(_parts[1])
+                _h = (_h + 3) % 24
+                _m['time'] = f'{_h:02d}:{_min:02d}'
+        except:
+            pass
 
     # Сохранение
     saved_db = _save_to_db(all_matches)
