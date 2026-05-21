@@ -610,6 +610,12 @@ def _save_predictions(new_predictions):
             except Exception as e:
                 print(f'  ⚠️ DB save: {e}')
 
+    try:
+        from capper_common import trigger_generate
+        trigger_generate('predictions')
+    except Exception:
+        pass
+
 
 def main():
     mock = '--mock' in sys.argv

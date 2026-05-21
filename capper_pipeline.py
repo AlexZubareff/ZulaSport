@@ -1105,6 +1105,13 @@ def _save_predictions(new_predictions):
             except Exception:
                 pass
 
+    # Триггер регенерации страницы прогнозов
+    try:
+        from capper_common import trigger_generate
+        trigger_generate('predictions')
+    except Exception:
+        pass
+
 
 # ═══════════════════ Пост-прогоночная проверка ═══════════════════
 

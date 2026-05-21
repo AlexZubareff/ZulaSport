@@ -567,6 +567,12 @@ def main():
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
+            # Триггерим регенерацию расписания (с debounce)
+            try:
+                from capper_common import trigger_generate
+                trigger_generate('schedule')
+            except Exception as tge:
+                print(f'  ⚠️ trigger_generate: {tge}')
         except Exception as e:
             print(f'  ⚠️ Ошибка запуска evaluate: {e}')
     else:
