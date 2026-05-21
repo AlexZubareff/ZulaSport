@@ -17,6 +17,7 @@ from playwright.sync_api import sync_playwright
 
 sys.path.insert(0, '/opt')
 from capper_common import call_deepseek_with_cache, get_cache_stats
+from alert import report_success, report_failure, wrap_source
 
 # БД (если доступна)
 try:
@@ -1185,4 +1186,9 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+        report_success('capper_pipeline')
+    except Exception as e:
+        report_failure('capper_pipeline', str(e))
+        raise

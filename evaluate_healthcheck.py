@@ -13,6 +13,9 @@ Healthcheck связности пайплайна прогнозов.
 import os, json, sys
 from datetime import datetime, timezone
 
+sys.path.insert(0, '/opt')
+from alert import healthcheck_errors, get_all_status, ERROR_STATE_PATH
+
 HISTORY_PATH = '/opt/predictions_history.json'
 PRED_PATH = '/opt/predictions_data.json'
 RESULTS_PATH = '/tmp/daily_results_data.json'
@@ -115,10 +118,14 @@ def check():
             print(f'\nISSUE: {msg}')
             state['last_alert'] = now_ts
 
+    # 5. Проверка счётчиков ошибок из alert.py
+    print()
+    alert_issues = healthcheck_errors()
+
     state['last_check'] = now.isoformat()
     save_json(STATE_FILE, state)
 
-    return len(issues) + (state['empty_runs'] >= MAX_EMPTY_RUNS)
+    return len(issues) + (state['empty_runs'] >= MAX_EMPTY_RUNS) + alert_issues
 
 
 if __name__ == '__main__':

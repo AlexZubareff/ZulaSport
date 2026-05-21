@@ -12,6 +12,7 @@
 
 import json, os, sys, requests
 from data_schemas import validate
+from alert import report_success, report_failure, get_source_status
 from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, '/opt')
@@ -617,4 +618,9 @@ def _schedule_next(live_count, upcoming_count, all_matches):
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+        report_success('fetch_live_scores')
+    except Exception as e:
+        report_failure('fetch_live_scores', str(e))
+        raise

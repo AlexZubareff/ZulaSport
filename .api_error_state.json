@@ -1,0 +1,13 @@
+{
+  "_version": 1,
+  "updated_at": "2026-05-21T07:20:23.579033+00:00",
+  "sources": {
+    "wrapped_fail": {
+      "consecutive_failures": 1,
+      "last_failure": "2026-05-21T07:20:23.578897+00:00",
+      "last_success": null,
+      "last_alert_sent": null,
+      "last_error": "test error"
+    }
+  }
+}
