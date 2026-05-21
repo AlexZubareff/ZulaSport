@@ -271,6 +271,50 @@ def _fetch_balldontlie(target_date: str) -> List[Dict]:
 
 # ═══════════════════ Source: Flashscore ═══════════════════
 
+# ─── Timezone helpers ─────────────────────────────────────────────
+
+def _convert_to_msk(time_str: str, offset_hours: int = 0) -> str:
+    """Convert time string to MSK (UTC+3).
+
+    Handles:
+    - HH:MM (just time)
+    - dd.mm. HH:MM (with date prefix — strips prefix)
+
+    Args:
+        time_str: Original time string
+        offset_hours: Hours to add (+1 for CEST→MSK, 0 for already MSK)
+    """
+    if not time_str:
+        return ''
+
+    # Strip date prefix if present (dd.mm. or dd.mm) at the start
+    cleaned = re.sub(r'^\d{2}\.\d{2}\.?\s*', '', time_str)
+
+    if offset_hours == 0:
+        return cleaned
+
+    m = re.match(r'^(\d{1,2}):(\d{2})$', cleaned)
+    if not m:
+        return cleaned
+
+    hour, minute = int(m.group(1)), int(m.group(2))
+    total_minutes = hour * 60 + minute + offset_hours * 60
+    total_minutes %= 24 * 60  # wrap around midnight
+    new_hour = total_minutes // 60
+    new_min = total_minutes % 60
+    return f'{new_hour:02d}:{new_min:02d}'
+
+
+# ─── Timezone map for Flashscore leagues ────────────────────────────
+# Offset (in hours) to add to convert event local time to MSK (UTC+3)
+FLASHSCORE_TZ_OFFSETS = {
+    'world-cup-hockey': 1,   # CEST (UTC+2) → MSK (UTC+3)
+    'euroleague':       1,   # CEST (UTC+2) → MSK (UTC+3)
+    'khl':              0,   # Already MSK (UTC+3)
+    'vtb':              0,   # Russia / already MSK
+}
+
+
 def _fetch_flashscore(target_date: datetime) -> List[Dict]:
     """Предстоящие матчи из flashscore-лиг (КХЛ, ВТБ, Евролига, ЧМ)."""
     matches = []
@@ -282,24 +326,27 @@ def _fetch_flashscore(target_date: datetime) -> List[Dict]:
             sys.path.insert(0, '/root/.openclaw/workspace/odds')
             from flashscore_other import fetch_upcoming_live
             from flashscore_other import LEAGUES as _FS_LEAGUES
-            
+
             # Используем fixtures URL для ЧМ (показывает матчи только текущего сезона)
             if league_key == 'world-cup-hockey':
                 _orig_path = _FS_LEAGUES[league_key]['path']
                 _FS_LEAGUES[league_key]['path'] = _orig_path.rstrip('/') + '/fixtures/'
-            
+
             fs_matches, _ = fetch_upcoming_live(league_key, date_from=wc_from, date_to=wc_to)
         except Exception as e:
             print(f'  ⚠️ Flashscore {league_name}: {e}')
             continue
 
+        offset = FLASHSCORE_TZ_OFFSETS.get(league_key, 0)
         for m in fs_matches:
             if not isinstance(m, dict):
                 continue
+            raw_time = m.get('time', '')
+            msk_time = _convert_to_msk(raw_time, offset_hours=offset)
             matches.append({
                 'home': m.get('home', '?'),
                 'away': m.get('away', '?'),
-                'time': m.get('time', ''),
+                'time': msk_time,
                 'game_id': 0,
                 'league': league_name,
                 'sport': sport_type,
