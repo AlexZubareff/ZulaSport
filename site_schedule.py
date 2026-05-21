@@ -110,13 +110,13 @@ def generate_schedule(output_path='/var/www/sport/schedule.html'):
         except Exception as e:
             print(f'  ⚠️ БД: {e}')
 
-    if not used_db or not today_matches or not tomorrow_matches:
-        # Fallback: legacy JSON
-        from generate_site_legacy import get_upcoming
+    from generate_site_legacy import get_upcoming as _legacy_upcoming
+    if not used_db or not today_matches:
         today_str = today_display()
-        today_matches = get_upcoming(target_date=today_str)
-        tomorrow_matches = get_upcoming(target_date=tomorrow_legacy)
-
+        today_matches = _legacy_upcoming(target_date=today_str)
+    if not used_db or not tomorrow_matches:
+        tomorrow_matches = _legacy_upcoming(target_date=tomorrow_legacy)
+    if not used_db:
         fpath = '/opt/predictions_data.json'
         if os.path.exists(fpath):
             try:
