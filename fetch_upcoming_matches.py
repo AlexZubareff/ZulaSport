@@ -519,19 +519,6 @@ def collect_all(target_date: Optional[str] = None) -> List[Dict]:
 
 
     import re as _re
-    for _m in all_matches:
-        _t = _m.get('time', _m.get('match_time', ''))
-        try:
-            _clean = _re.sub(r'^\d{2}\.\d{2}\.\s*', '', _t).strip()
-            _parts = _clean.split(':')
-            if len(_parts) == 2:
-                _h, _min = int(_parts[0]), int(_parts[1])
-                _h = (_h + 3) % 24
-                _m['time'] = f'{_h:02d}:{_min:02d}'
-        except:
-            pass
-
-    # Сохранение
     saved_db = _save_to_db(all_matches)
     _save_to_json(all_matches)
 
