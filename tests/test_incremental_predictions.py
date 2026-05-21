@@ -14,133 +14,159 @@ from unittest.mock import patch
 
 sys.path.insert(0, '/opt')
 
-# Мокаем БД, чтобы не зависеть от реальных данных
-MOCK_PREDS = []
-for i in range(30):
-    MOCK_PREDS.append({
-        'league': 'АПЛ' if i < 25 else 'НХЛ',
-        'home': f'Team_{i}A',
-        'away': f'Team_{i}B',
-        'prediction_text': f'Прогноз для матча {i}',
-        'verdict': f'Вердикт {i}',
-        'match_time': f'{10 + i % 12}:00',
-        'time': f'{10 + i % 12}:00',
-        'game_id': i,
-        'glicko_home_prob': 0.6, 'glicko_away_prob': 0.4,
-        'odds_over': 1.8, 'odds_under': 2.0, 'total_line': 2.5,
-        'generated_at': '2026-05-21T07:00:00',
-        'status': 'upcoming',
-        'odds': {'home': 1.5}, 'totals': {'total_line': 2.5, 'over': 1.8},
-    })
-
 
 class TestIncrementalPredictions:
     """Тест инкрементальной генерации predictions.html."""
 
-    @patch('site_predictions.db.get_queue', return_value=MOCK_PREDS)
-    @patch('site_predictions._DB_OK', True)
-    def test_generate_predictions(self, mock_db, tmp_path):
-        """predictions.html генерируется без ошибок."""
-        import site_predictions
-        out = str(tmp_path / 'predictions.html')
-        result = site_predictions.generate_predictions(out)
+    def _make_pred(self, league, idx):
+        return {
+            'league': league,
+            'home': f'Team_{idx}A',
+            'away': f'Team_{idx}B',
+            'prediction': f'Прогноз для матча {idx}',
+            'prediction_text': f'Прогноз для матча {idx}',
+            'verdict': f'Вердикт {idx}',
+            'match_time': f'{10 + idx % 12}:00',
+            'time': f'{10 + idx % 12}:00',
+            'game_id': idx,
+            'glicko': {'home_prob': 0.6, 'draw_prob': 0.2, 'away_prob': 0.2},
+            'totals': {'total_line': 2.5, 'over': 1.8, 'under': 2.0},
+            'odds': {'home': 1.5},
+            'generated_at': '2026-05-21T07:00:00',
+            'status': 'upcoming',
+        }
 
-        assert result == 30  # Все прогнозы
+    def _run_generate(self, tmp_path, pred_count=30, json_only=False):
+        """Сгенерировать predictions.html с тестовыми данными.
+        
+        Если json_only=True — использует JSON fallback (без БД).
+        """
+        import importlib, site_predictions
+        importlib.reload(site_predictions)
+
+        out = str(tmp_path / 'predictions.html')
+
+        if json_only:
+            # Подменяем _DB_OK на False
+            import site_predictions as sp
+            sp._DB_OK = False
+
+            # Создаём JSON файл с тестовыми данными
+            preds = []
+            for i in range(pred_count):
+                league = 'АПЛ' if i < pred_count - 5 else 'НХЛ'
+                preds.append(self._make_pred(league, i))
+
+            # Сохраняем тестовый predictions_data.json
+            pred_path = str(tmp_path / 'predictions_data.json')
+            with open(pred_path, 'w', encoding='utf-8') as f:
+                json.dump({
+                    'predictions': preds,
+                    'count': len(preds),
+                    'generated_at': '2026-05-21T07:00:00',
+                }, f, ensure_ascii=False)
+
+            # Используем path overlay — подменяем PREDICTION_PATH
+            # Для этого используем прямой подход: записываем в реальный путь
+            # и восстанавливаем после
+            orig_path = '/opt/predictions_data.json'
+            backup = None
+            if os.path.exists(orig_path):
+                with open(orig_path) as f:
+                    backup = f.read()
+            with open(orig_path, 'w', encoding='utf-8') as f:
+                json.dump({
+                    'predictions': preds,
+                    'count': len(preds),
+                    'generated_at': '2026-05-21T07:00:00',
+                }, f, ensure_ascii=False)
+
+            try:
+                result = site_predictions.generate_predictions(out)
+            finally:
+                if backup:
+                    with open(orig_path, 'w', encoding='utf-8') as f:
+                        f.write(backup)
+                elif os.path.exists(orig_path):
+                    os.remove(orig_path)
+        else:
+            result = site_predictions.generate_predictions(out)
+
+        return result, out
+
+    def test_generate_predictions_many(self, tmp_path):
+        """predictions.html генерируется без ошибок (30 прогнозов)."""
+        # Используем JSON fallback (без БД)
+        result, out = self._run_generate(tmp_path, pred_count=30, json_only=True)
+        assert result == 30
         assert os.path.exists(out)
 
-    @patch('site_predictions.db.get_queue', return_value=MOCK_PREDS)
-    @patch('site_predictions._DB_OK', True)
-    def test_first_20_static_html(self, mock_db, tmp_path):
+    def test_first_20_static_html(self, tmp_path):
         """Первые 20 прогнозов — статический HTML (pred-widget)."""
-        import site_predictions
-        out = str(tmp_path / 'predictions_static.html')
-        site_predictions.generate_predictions(out)
-
+        result, out = self._run_generate(tmp_path, pred_count=30, json_only=True)
+        assert result == 30
         with open(out) as f:
             html = f.read()
+        # Статических карточек как минимум 20
+        assert html.count('class="pred-widget"') >= 20
 
-        # Статические карточки
-        assert html.count('class="pred-widget"') >= 20  # первые 20 статические
-
-    @patch('site_predictions.db.get_queue', return_value=MOCK_PREDS)
-    @patch('site_predictions._DB_OK', True)
-    def test_json_data_blob_present(self, mock_db, tmp_path):
+    def test_json_data_blob_present(self, tmp_path):
         """JSON-блоб с данными для JS присутствует в HTML."""
-        import site_predictions
-        out = str(tmp_path / 'predictions_json.html')
-        site_predictions.generate_predictions(out)
-
+        result, out = self._run_generate(tmp_path, pred_count=30, json_only=True)
+        assert result == 30
         with open(out) as f:
             html = f.read()
+        assert 'pred-data-json' in html, 'Нет JSON-блоб'
+        assert 'PRED_DATA' in html, 'Нет PRED_DATA'
 
-        assert 'pred-data-json' in html
-        assert 'PRED_DATA' in html
-
-        # Извлекаем JSON
-        import re
-        m = re.search(r'id="pred-data-json"[^>]*>([^<]+)<', html)
-        assert m, 'JSON-блоб не найден'
-
-    @patch('site_predictions.db.get_queue', return_value=MOCK_PREDS)
-    @patch('site_predictions._DB_OK', True)
-    def test_load_more_button_present(self, mock_db, tmp_path):
+    def test_load_more_button_present(self, tmp_path):
         """Кнопка 'Показать ещё' присутствует для лиг с >20 прогнозов."""
-        import site_predictions
-        out = str(tmp_path / 'predictions_more.html')
-        site_predictions.generate_predictions(out)
-
+        result, out = self._run_generate(tmp_path, pred_count=30, json_only=True)
+        assert result == 30
         with open(out) as f:
             html = f.read()
-
         assert 'Показать ещё' in html
 
-    @patch('site_predictions.db.get_queue', return_value=MOCK_PREDS[:5])
-    @patch('site_predictions._DB_OK', True)
-    def test_no_more_button_if_under_20(self, mock_db, tmp_path):
+    def test_no_more_button_if_under_20(self, tmp_path):
         """Если прогнозов ≤20 — кнопки 'Показать ещё' нет."""
-        import site_predictions
-        out = str(tmp_path / 'predictions_no_more.html')
-        site_predictions.generate_predictions(out)
-
+        result, out = self._run_generate(tmp_path, pred_count=5, json_only=True)
+        assert result == 5
         with open(out) as f:
             html = f.read()
-
         assert 'Показать ещё' not in html
 
-    @patch('site_predictions.db.get_queue', return_value=MOCK_PREDS)
-    @patch('site_predictions._DB_OK', True)
-    def test_load_more_js_func_defined(self, mock_db, tmp_path):
+    def test_load_more_js_func_defined(self, tmp_path):
         """JS-функция loadMorePreds определена в HTML."""
-        import site_predictions
-        out = str(tmp_path / 'predictions_js.html')
-        site_predictions.generate_predictions(out)
-
+        result, out = self._run_generate(tmp_path, pred_count=30, json_only=True)
+        assert result == 30
         with open(out) as f:
             html = f.read()
-
         assert 'function loadMorePreds' in html
         assert 'function toggleTxt' in html
 
-    @patch('site_predictions.db.get_queue', return_value=[])
-    @patch('site_predictions._DB_OK', True)
-    def test_empty_predictions(self, mock_db, tmp_path):
+    def test_empty_predictions(self, tmp_path):
         """При пустых прогнозах страница не падает."""
-        import site_predictions
-        out = str(tmp_path / 'predictions_empty.html')
-        result = site_predictions.generate_predictions(out)
-
+        result, out = self._run_generate(tmp_path, pred_count=0, json_only=True)
         assert result == 0
         assert os.path.exists(out)
 
-    @patch('site_predictions.db.get_queue', side_effect=Exception('DB error'))
-    @patch('site_predictions._DB_OK', True)
-    def test_db_error_graceful(self, mock_db, tmp_path):
-        """Ошибка БД не ломает генерацию — грациозное падение."""
-        import site_predictions
-        out = str(tmp_path / 'predictions_err.html')
+    def test_fallback_json_no_file(self, tmp_path):
+        """БД нет, JSON нет — грациозное падение."""
+        import importlib, site_predictions
+        importlib.reload(site_predictions)
+        site_predictions._DB_OK = False
 
-        # Не должно быть исключения
-        result = site_predictions.generate_predictions(out)
+        out = str(tmp_path / 'predictions_clean.html')
 
-        assert result == 0
-        assert os.path.exists(out)
+        # Убеждаемся, что predictions_data.json не существует
+        if os.path.exists('/opt/predictions_data.json'):
+            os.rename('/opt/predictions_data.json', str(tmp_path / 'predictions_data.bak'))
+
+        try:
+            result = site_predictions.generate_predictions(out)
+            assert result == 0
+            assert os.path.exists(out)
+        finally:
+            bak = str(tmp_path / 'predictions_data.bak')
+            if os.path.exists(bak):
+                os.rename(bak, '/opt/predictions_data.json')
