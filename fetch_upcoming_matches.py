@@ -306,24 +306,41 @@ def _fetch_flashscore(target_date: datetime) -> List[Dict]:
 # ═══════════════════ Дедупликация ═══════════════════
 
 def _dedup(matches: List[Dict]) -> List[Dict]:
-    """Дедупликация: (league, home, away) — уникальный ключ.
+    """Дедупликация: (league, home, away) — уникальный ключ + симметричные пары.
     Приоритет: flashscore < espn < balldontlie < nhl_api < sstats.
+    Для пар (A,B) и (B,A) — оставляем только одну (первую встреченную).
     """
     priority = {'flashscore': 0, 'espn': 1, 'balldontlie': 2, 'nhl_api': 3, 'sstats': 4}
     seen = {}  # key -> index
+    seen_symmetric = {}  # symmetric key -> index (для пар home/away)
 
     unique = []
     for m in matches:
-        key = f"{m.get('league','')}||{m.get('home','')}||{m.get('away','')}"
+        league = m.get('league', '')
+        home = m.get('home', '')
+        away = m.get('away', '')
+        key = f"{league}||{home}||{away}"
+        # Симметричный ключ: сортируем команды, чтобы (A,B) = (B,A)
+        sym_key = f"{league}||{'||'.join(sorted([home, away]))}"
         src_priority = priority.get(m.get('source', ''), 0)
+
+        # Сначала проверяем точное совпадение
         if key in seen:
             idx = seen[key]
             existing = unique[idx]
             old_priority = priority.get(existing.get('source', ''), 0)
             if src_priority > old_priority:
                 unique[idx] = m
+        # Затем проверяем симметричное (A,B) == (B,A)
+        elif sym_key in seen_symmetric:
+            idx = seen_symmetric[sym_key]
+            existing = unique[idx]
+            # Если симметричная пара уже есть — не добавляем
+            # (первая встреченная остаётся)
+            pass
         else:
             seen[key] = len(unique)
+            seen_symmetric[sym_key] = len(unique)
             unique.append(m)
 
     return unique
