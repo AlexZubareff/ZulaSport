@@ -10,6 +10,7 @@
 
 import json, os, sys, hashlib, time, requests
 from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 sys.path.insert(0, '/opt')
 from data_schemas import validate
@@ -146,3 +147,35 @@ def get_cache_stats():
 def clear_cache():
     """Очищает кеш."""
     _save_cache({})
+
+
+def batch_generate_predictions(matches, generate_one_fn, max_workers=3, force_refresh=False):
+    """
+    Параллельная генерация прогнозов для списка матчей.
+    
+    Args:
+        matches: список dict с home, away, league и т.д.
+        generate_one_fn: функция(match_info) -> str
+        max_workers: сколько DeepSeek запросов одновременно (по умолч. 3)
+        force_refresh: пропустить кеш
+    
+    Returns:
+        list[str]: прогнозы в том же порядке, что и matches
+    """
+    results = [None] * len(matches)
+
+    def _task(i, match):
+        try:
+            return i, generate_one_fn(match)
+        except Exception as e:
+            print(f'  ⚠️ [{i+1}/{len(matches)}] {match.get("home","?")} — {match.get("away","?")}: {e}')
+            return i, None
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(_task, i, m) for i, m in enumerate(matches)]
+        for future in as_completed(futures):
+            i, result = future.result()
+            results[i] = result
+            print(f'  ✅ [{i+1}/{len(matches)}] прогноз готов')
+
+    return results
