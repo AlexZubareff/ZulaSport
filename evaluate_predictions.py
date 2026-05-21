@@ -15,6 +15,7 @@ from collections import defaultdict
 
 # Импорт маппера команд
 import team_mapper
+from data_schemas import validate as validate_schema
 
 # БД (если доступна)
 try:
@@ -222,7 +223,148 @@ def _build_score_lookup():
             all_result_names.append(away)
             lookup[k] = (score, 'finished')
 
+    # 3. БД: finished-матчи за последние 7 дней
+    if _DB_AVAILABLE:
+        try:
+            db_results = db.execute(
+                "SELECT * FROM matches WHERE status='finished' AND match_date >= CURRENT_DATE - 7"
+            )
+            for r in db_results:
+                league = r['league']
+                home = r['home']
+                away = r['away']
+                score = r.get('score', '')
+                if league and home and away and score:
+                    lookup[(league, home, away)] = (score, 'finished')
+        except Exception as e:
+            print(f'  ⚠️ БД: {e}')
+
     return lookup
+
+
+def _db_row_to_legacy(p):
+    """Преобразовать запись из БД (RealDictRow) в legacy-формат (dict с вложенными odds, totals, glicko)."""
+    """Преобразовать запись из БД (RealDictRow) в legacy-формат (dict с вложенными odds, totals, glicko)."""
+    d = dict(p)
+    odds = {}
+    for k in ('home', 'draw', 'away'):
+        v = d.pop(f'odds_{k}', None)
+        if v is not None:
+            odds[k] = v
+    if odds:
+        d['odds'] = odds
+    totals = {}
+    ov = d.pop('odds_over', None)
+    un = d.pop('odds_under', None)
+    tl = d.pop('total_line', None)
+    if ov is not None:
+        totals['over'] = ov
+    if un is not None:
+        totals['under'] = un
+    if tl is not None:
+        totals['total_line'] = tl
+    if totals:
+        d['totals'] = totals
+    glicko = {}
+    for k in ('home_prob', 'draw_prob', 'away_prob', 'home_rating', 'away_rating', 'home_xg', 'away_xg'):
+        v = d.pop(f'glicko_{k}', None)
+        if v is not None:
+            glicko[k] = v
+    if glicko:
+        d['glicko'] = glicko
+    xgb = {}
+    for k in ('win_pred', 'win_conf', 'total_pred', 'total_conf'):
+        v = d.pop(f'xgb_{k}', None)
+        if v is not None:
+            xgb[k] = v
+    if xgb:
+        d['xgb_verdict'] = xgb
+    result = {}
+    rw = d.pop('result_win', None)
+    rt = d.pop('result_total', None)
+    if rw is not None or rt is not None:
+        wr = {'correct': rw == 'correct'} if rw else None
+        tr = {'correct': rt == 'correct'} if rt else None
+        if wr or tr:
+            result['win'] = wr
+            result['total'] = tr
+    if result:
+        d['result'] = result
+    if 'prediction_text' in d and 'prediction' not in d:
+        d['prediction'] = d.pop('prediction_text')
+    if 'match_time' in d and 'time' not in d:
+        d['time'] = d.pop('match_time')
+    return d
+
+
+def _load_queue():
+    """Загрузить очередь прогнозов. Сначала БД, fallback JSON.
+    Возвращает (list[dict], bool) — очередь и флаг "из БД"."""
+    queue = []
+    used_db = False
+    if _DB_AVAILABLE:
+        try:
+            for p in db.get_queue():
+                queue.append(_db_row_to_legacy(p))
+            used_db = True
+        except Exception as e:
+            print(f'  ⚠️ БД/queue: {e}')
+    if not used_db or not queue:
+        queue = load_json(PRED_PATH, {}).get('predictions', [])
+        if not used_db and queue:
+            print(f'  ⚠️ БД недоступна — читаем очередь из JSON')
+    return queue, used_db
+
+
+def _load_history():
+    """Загрузить историю прогнозов. Сначала БД, fallback JSON.
+    Возвращает (list[dict], bool)."""
+    history_list = []
+    used_db = False
+    if _DB_AVAILABLE:
+        try:
+            for p in db.get_history(limit=10000):
+                history_list.append(_db_row_to_legacy(p))
+            used_db = True
+        except Exception as e:
+            print(f'  ⚠️ БД/history: {e}')
+    if not used_db or not history_list:
+        hist_data = load_json(HISTORY_PATH, {'predictions': [], 'summary': {}, 'last_updated': None})
+        history_list = hist_data.get('predictions', [])
+        if not used_db and history_list:
+            print(f'  ⚠️ БД недоступна — читаем историю из JSON')
+    return history_list, used_db
+
+
+def _save_to_json(path, data, schema_name):
+    """Сохранить в JSON с валидацией схемы."""
+    ok, errors = validate_schema(data, schema_name)
+    if not ok:
+        print(f'  ⚠️ {path}: {len(errors)} ошибок схемы (сохраняем)')
+        for e in errors[:2]:
+            print(f'    - {e}')
+    tmp = path + '.tmp'
+    try:
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.rename(tmp, path)
+    except Exception as e:
+        print(f'  ❌ {path}: {e}')
+
+
+def _save_to_db(predictions_list):
+    """Сохранить прогнозы в БД. Возвращает количество сохранённых."""
+    if not _DB_AVAILABLE:
+        return 0
+    saved = 0
+    for entry in predictions_list:
+        try:
+            entry['status'] = 'finished'
+            db.save_prediction(entry)
+            saved += 1
+        except Exception as e:
+            print(f'  ⚠️ DB save: {entry.get("home","?")} — {entry.get("away","?")}: {e}')
+    return saved
 
 
 # ═══════════════════ Оценка ═══════════════════════════════════════
@@ -231,8 +373,10 @@ def _build_score_lookup():
 def evaluate():
     now = datetime.now(UTC)
 
-    queue = load_json(PRED_PATH, {}).get('predictions', [])
-    history = load_json(HISTORY_PATH, {'predictions': [], 'summary': {}, 'last_updated': None})
+    # Загрузка: БД → JSON fallback
+    queue, queue_used_db = _load_queue()
+    history_list, hist_used_db = _load_history()
+    history = {'predictions': history_list, 'summary': {}, 'last_updated': None}
 
     # Строим lookup счётов
     score_lookup = _build_score_lookup()
@@ -266,6 +410,7 @@ def evaluate():
         return (p.get('league',''), p.get('home',''), p.get('away',''), p.get('generated_at',''))
     
     queue_keys = {_pred_key(qp) for qp in queue}
+    initial_queue_keys = set(queue_keys)
 
     for pred in candidates:
         # Маппинг через team_mapper
@@ -367,27 +512,39 @@ def evaluate():
     }
     history['last_updated'] = now.isoformat()
 
-    save_json(HISTORY_PATH, history)
+    # ── Сохраняем оценённые: БД (основной канал) + JSON (fallback) ──
+    db_saved = _save_to_db(evaluated)
+    if db_saved:
+        print(f'  💾 БД: {db_saved} прогнозов сохранено')
 
-    # ── БД: сохраняем оценённые ──
-    if _DB_AVAILABLE:
-        for entry in evaluated:
-            try:
-                # Преобразуем history_entry в формат БД
-                entry['status'] = 'finished'
-                # result уже вложенный — db._pred_to_params разберёт
-                db.save_prediction(entry)
-            except Exception:
-                pass
+    # Обновляем историю (JSON fallback)
+    history['predictions'] = hist_preds
+    # Пересчитываем summary
+    finished = [h for h in hist_preds if h.get('status') == 'finished']
+    win_total = sum(1 for h in finished if h.get('result') and h['result'].get('win') and h['result']['win'].get('correct') is not None)
+    win_correct = sum(1 for h in finished if h.get('result') and h['result'].get('win') and h['result']['win'].get('correct') is True)
+    tot_total = sum(1 for h in finished if h.get('result') and h['result'].get('total') and h['result']['total'].get('correct') is not None)
+    tot_correct = sum(1 for h in finished if h.get('result') and h['result'].get('total') and h['result']['total'].get('correct') is True)
+    history['summary'] = {
+        'total_predictions': len(hist_preds),
+        'finished': len(finished),
+        'upcoming': len([h for h in hist_preds if h.get('status') == 'upcoming']),
+        'win': {'total': win_total, 'correct': win_correct, 'incorrect': win_total - win_correct},
+        'total': {'total': tot_total, 'correct': tot_correct, 'incorrect': tot_total - tot_correct},
+        'by_league': dict(by_league),
+    }
+    history['last_updated'] = now.isoformat()
+    _save_to_json(HISTORY_PATH, history, 'predictions_history')
 
     # ── Обновляем очередь (удаляем оценённые) ──
     still_waiting = [qp for qp in queue if _pred_key(qp) in queue_keys]
     if still_waiting:
-        save_json(PRED_PATH, {
+        output = {
             'predictions': still_waiting,
             'count': len(still_waiting),
             'generated_at': now.isoformat(),
-        })
+        }
+        _save_to_json(PRED_PATH, output, 'predictions_data')
     else:
         # Очередь пуста — удаляем файл
         if os.path.exists(PRED_PATH):
@@ -411,6 +568,15 @@ def evaluate():
             print(f'    {league}: '
                   f'🎯 {fmt_accuracy(v["win"]["correct"], v["win"]["total"])} / '
                   f'📊 {fmt_accuracy(v["total"]["correct"], v["total"]["total"])}')
+
+    # ── Alert: статус БД ──
+    if not _DB_AVAILABLE:
+        print(f'  ⚠️ БД недоступна — данные только в JSON')
+        from alert import report_failure
+        report_failure('evaluate_predictions_db', 'БД недоступна, работаем через JSON')
+    else:
+        from alert import report_success
+        report_success('evaluate_predictions')
 
     return history
 
