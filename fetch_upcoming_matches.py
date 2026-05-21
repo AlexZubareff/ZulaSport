@@ -281,7 +281,14 @@ def _fetch_flashscore(target_date: datetime) -> List[Dict]:
         try:
             sys.path.insert(0, '/root/.openclaw/workspace/odds')
             from flashscore_other import fetch_upcoming_live
-            fs_matches, _ = fetch_upcoming_live(league_key)
+            from flashscore_other import LEAGUES as _FS_LEAGUES
+            
+            # Используем fixtures URL для ЧМ (показывает матчи только текущего сезона)
+            if league_key == 'world-cup-hockey':
+                _orig_path = _FS_LEAGUES[league_key]['path']
+                _FS_LEAGUES[league_key]['path'] = _orig_path.rstrip('/') + '/fixtures/'
+            
+            fs_matches, _ = fetch_upcoming_live(league_key, date_from=wc_from, date_to=wc_to)
         except Exception as e:
             print(f'  ⚠️ Flashscore {league_name}: {e}')
             continue
@@ -510,32 +517,6 @@ def collect_all(target_date: Optional[str] = None) -> List[Dict]:
     if total_before != len(all_matches):
         print(f'  🔄 Дедупликация: {total_before} → {len(all_matches)}')
 
-    # Team-dedup: если одна команда играет два матча в одной лиге — оставляем первый
-    _seen_teams = {}
-    _team_deduped = []
-    for _m in all_matches:
-        _league = _m.get('league', '')
-        _home = _m.get('home', '')
-        _away = _m.get('away', '')
-        if _league not in _seen_teams:
-            _seen_teams[_league] = set()
-        # Проверяем, не заняты ли команды уже
-        if _home in _seen_teams[_league] or _away in _seen_teams[_league]:
-            print(f'  🗑️ Одинаковая команда в {_league}: {_home} — {_away}')
-            continue
-        _seen_teams[_league].add(_home)
-        _seen_teams[_league].add(_away)
-        _team_deduped.append(_m)
-    if len(_team_deduped) != len(all_matches):
-        print(f'  🏒 Team-dedup: {len(all_matches)} → {len(_team_deduped)}')
-        all_matches = _team_deduped
-
-    # Лимит: ЧМ по хоккею — не более 4 матчей/день (остальное — матчи прошлых лет)
-    _chm = [m for m in all_matches if 'хокке' in m.get('league', '').lower()]
-    _other = [m for m in all_matches if 'хокке' not in m.get('league', '').lower()]
-    if len(_chm) > 4:
-        print(f'  🏒 ЧМ лимит: {len(_chm)} → 4 (остальное — матчи прошлых лет)')
-        all_matches = _other + _chm[:4]
 
     import re as _re
     for _m in all_matches:
