@@ -15,8 +15,13 @@
 20 6 * * * cd /opt && python3 send_prediction_stats.py > /dev/null 2>&1
 30 2,3 * * * cd /opt && python3 fetch_tv_channels.py > /dev/null 2>&1
 
-# ─── Сайт Zula Спорт — 3 страницы ──────────────────────
+# ─── Сайт Zula Спорт — генерация страниц (fallback) ──────────
+# Event-driven: trigger_generate запускает эти же скрипты при событиях
+# (live scores → schedule, capper → predictions).
+# Cron-fallback — перестраховка, если event пропущен.
 */30 * * * * cd /opt && python3 generate_site.py --section news > /dev/null 2>&1
 */15 10-20 * * * cd /opt && python3 generate_site.py --section schedule > /dev/null 2>&1
 0 7 * * * cd /opt && python3 generate_site.py --section results > /dev/null 2>&1
 0 6 * * * cd /opt && python3 generate_site.py --section all > /dev/null 2>&1
+# Прогнозы: после кэппера (event-driven) + каждый час как fallback
+0 5-23 * * * cd /opt && python3 generate_site.py --section predictions > /dev/null 2>&1
