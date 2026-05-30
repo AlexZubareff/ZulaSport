@@ -14,6 +14,7 @@ from datetime import datetime, timezone, timedelta
 from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, '/opt')
+sys.path.insert(0, '/root/.openclaw/workspace/odds')
 
 from fetch_upcoming_matches import (
     _fetch_sstats, _fetch_nhl, _fetch_espn,
@@ -114,6 +115,77 @@ class TestFetchUpcoming:
             result = _fetch_espn('soccer/eng.1', '2026-05-22', 'АПЛ', 'football')
             assert isinstance(result, list)
             assert len(result) == 0
+
+    def test_flashscore_date_filter_valid(self):
+        """_fetch_flashscore передаёт ISO-строки, а не datetime-объекты."""
+        target = datetime(2026, 5, 30, 3, 0, 0, tzinfo=timezone.utc)
+
+        import fetch_upcoming_matches
+
+        with patch('flashscore_other.fetch_upcoming_live') as mock_live:
+            mock_live.return_value = ([], '')
+            result = fetch_upcoming_matches._fetch_flashscore(target)
+
+            # Проверяем, что fetch_upcoming_live вызван с ISO-строками
+            call_args = mock_live.call_args
+            assert call_args is not None, 'fetch_upcoming_live не был вызван'
+            args, kwargs = call_args
+            date_from = kwargs.get('date_from')
+            date_to = kwargs.get('date_to')
+            assert isinstance(date_from, str), f'date_from должен быть str, а не {type(date_from)}'
+            assert isinstance(date_to, str), f'date_to должен быть str, а не {type(date_to)}'
+            assert '2026-05-30' in date_from
+            assert '2026-05-30' in date_to
+
+    def test_flashscore_season_filter(self):
+        """SEASON_RANGES отсеивает матчи вне сезона."""
+        from datetime import datetime, timezone
+        import fetch_upcoming_matches
+
+        # Июнь — вне сезона КХЛ (сентябрь-апрель) и ВТБ/Евролиги
+        target_june = datetime(2026, 6, 15, 3, 0, 0, tzinfo=timezone.utc)
+        target_may = datetime(2026, 5, 15, 3, 0, 0, tzinfo=timezone.utc)
+
+        fake_matches = [
+            {'home': 'Команда А', 'away': 'Команда Б', 'time': '15:00', 'game_id': 1},
+        ]
+
+        with patch('flashscore_other.fetch_upcoming_live', return_value=(fake_matches, '')):
+            # Июнь — все flashscore-лиги вне сезона (кроме ЧМ по хоккею — без ограничений)
+            result_june = fetch_upcoming_matches._fetch_flashscore(target_june)
+            # ЧМ по хоккею (world-cup-hockey) не имеет SEASON_RANGES → проходит
+            # Остальные лиги отфильтрованы
+            khl_in_june = [m for m in result_june if m['league'] == 'КХЛ']
+            assert len(khl_in_june) == 0, \
+                f'КХЛ в июне: получено {len(khl_in_june)} матчей, ожидалось 0'
+
+            # Май — тоже вне сезона КХЛ (9-4)
+            result_may = fetch_upcoming_matches._fetch_flashscore(target_may)
+            khl_in_may = [m for m in result_may if m['league'] == 'КХЛ']
+            assert len(khl_in_may) == 0, \
+                f'КХЛ в мае: получено {len(khl_in_may)} матчей, ожидалось 0'
+
+    def test_flashscore_season_filter_active(self):
+        """SEASON_RANGES пропускает матчи внутри сезона."""
+        from datetime import datetime, timezone
+        import fetch_upcoming_matches
+
+        # Октябрь — КХЛ играет
+        target_oct = datetime(2026, 10, 15, 3, 0, 0, tzinfo=timezone.utc)
+
+        fake_matches = [
+            {'home': 'Команда А', 'away': 'Команда Б', 'time': '17:00', 'game_id': 1},
+        ]
+
+        with patch('flashscore_other.fetch_upcoming_live', return_value=(fake_matches, '')):
+            result = fetch_upcoming_matches._fetch_flashscore(target_oct)
+            khl_in_oct = [m for m in result if m['league'] == 'КХЛ']
+            assert len(khl_in_oct) == 1, \
+                f'КХЛ в октябре: получено {len(khl_in_oct)} матчей, ожидалось 1'
+            # ВТБ тоже в сезоне (9-5)
+            vtb_in_oct = [m for m in result if m['league'] == 'Лига ВТБ']
+            assert len(vtb_in_oct) == 1, \
+                f'ВТБ в октябре: получено {len(vtb_in_oct)} матчей'
 
     def test_validation_no_tv_fields(self):
         """Валидация: в данных upcoming нет полей ТВ-каналов."""

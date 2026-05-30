@@ -48,6 +48,68 @@ PRED_PATH = '/opt/predictions_data.json'
 DATA_DIR = '/opt/data/nhl'
 
 
+# ─── The Odds API (тоталы) ────────────────────────────────────────────
+ODDS_API_KEY = ''
+key_file = '/etc/odds_api.key'
+if os.path.exists(key_file):
+    with open(key_file) as f:
+        ODDS_API_KEY = f.read().strip()
+else:
+    ODDS_API_KEY = os.environ.get('ODDS_API_KEY', '')
+
+
+def _fetch_nhl_totals():
+    """Получить коэффициенты на тотал для НХЛ матчей из The Odds API."""
+    if not ODDS_API_KEY:
+        return {}
+
+    try:
+        resp = requests.get(
+            'https://api.the-odds-api.com/v4/sports/icehockey_nhl/odds/',
+            params={
+                'apiKey': ODDS_API_KEY,
+                'regions': 'us',
+                'markets': 'totals,h2h',
+                'oddsFormat': 'decimal',
+            },
+            timeout=10
+        )
+        if resp.status_code != 200:
+            return {}
+
+        data = resp.json()
+        result = {}
+        for match in data:
+            home = match.get('home_team', '')
+            away = match.get('away_team', '')
+            key = f'{home}||{away}'
+
+            totals = None
+            for book in match.get('bookmakers', []):
+                for market in book.get('markets', []):
+                    if market.get('key') == 'totals':
+                        for outcome in market.get('outcomes', []):
+                            if outcome.get('name') == 'Over':
+                                t = {'over': outcome.get('price'),
+                                     'under': None,
+                                     'total_line': outcome.get('point')}
+                                for o2 in market.get('outcomes', []):
+                                    if o2.get('name') == 'Under':
+                                        t['under'] = o2.get('price')
+                                totals = t
+                                break
+                if totals:
+                    break
+
+            if totals:
+                result[key] = totals
+
+        return result
+    except Exception as e:
+        print(f'  ⚠️ NHL odds fetch: {e}')
+        return {}
+
+
 # ═══════════════════ Загрузчик данных ═══════════════════
 
 def _init_nhl_data():
@@ -336,7 +398,8 @@ def _fallback_prediction(analysis):
 # ═══════════════════ Основной цикл ═══════════════════
 
 def process_nhl_match(match: dict, elo: NhlElo, nhl_form: NhlForm,
-                      form_data: dict, h2h_data: dict) -> Optional[Dict]:
+                      form_data: dict, h2h_data: dict,
+                      nhl_totals_cache: Dict = None) -> Optional[Dict]:
     """Обработать один хоккейный матч."""
     home = match.get('home', '')
     away = match.get('away', '')
@@ -353,6 +416,13 @@ def process_nhl_match(match: dict, elo: NhlElo, nhl_form: NhlForm,
     prob = analysis['combined']['home_prob']
     print(f'P1={prob*100:.0f}%', end=' ', flush=True)
 
+    # Добавить тоталы в анализ (для generate_nhl_prediction)
+    nhl_total_key = f'{home}||{away}'
+    if nhl_totals_cache:
+        match_totals = nhl_totals_cache.get(nhl_total_key, {})
+        if match_totals:
+            analysis['totals'] = match_totals
+
     pred_text = generate_nhl_prediction(analysis)
     print(f'✅')
 
@@ -362,6 +432,19 @@ def process_nhl_match(match: dict, elo: NhlElo, nhl_form: NhlForm,
 
     odds = analysis.get('odds_raw', {})
     elo_pred = analysis['elo']
+
+    # Определить тоталы для записи в результат
+    ods_totals = {}
+    ods_total_line = None
+    if nhl_totals_cache:
+        match_totals = nhl_totals_cache.get(nhl_total_key, {})
+        if match_totals:
+            ods_total_line = match_totals.get('total_line')
+            ods_totals = {
+                'over': match_totals.get('over'),
+                'under': match_totals.get('under'),
+                'line': match_totals.get('total_line'),
+            }
 
     return {
         'home': home_ru,
@@ -391,12 +474,8 @@ def process_nhl_match(match: dict, elo: NhlElo, nhl_form: NhlForm,
         'generated_at': datetime.now().isoformat(),
         'series': match.get('series', {}),
         # Для совместимости с db.save_prediction
-        'total_line': 5.5,
-        'totals': {
-            'over': None,
-            'under': None,
-            'total_line': 5.5,
-        },
+        'total_line': ods_total_line,
+        'totals': ods_totals,
     }
 
 
@@ -418,6 +497,8 @@ def batch_generate():
     print('🏒 Загрузка данных НХЛ...')
     matches = fetch_schedule()
     upcoming = _deduplicate_matches(matches.get('upcoming', []))
+    # Отфильтровать уже начавшиеся матчи — оставить только предстоящие
+    upcoming = [m for m in upcoming if m.get('status') in ('STATUS_SCHEDULED', 'STATUS_PRE')]
     finished = matches.get('finished', [])
 
     if not upcoming:
@@ -436,9 +517,14 @@ def batch_generate():
     # Init models
     elo, nhl_form, form_data, h2h_data = _init_nhl_data()
 
+    # Fetch real totals from The Odds API
+    nhl_totals_cache = _fetch_nhl_totals()
+    if nhl_totals_cache:
+        print(f'  🏒 Тоталы НХЛ: {len(nhl_totals_cache)} матчей')
+
     predictions = []
     for i, m in enumerate(upcoming):
-        pred = process_nhl_match(m, elo, nhl_form, form_data, h2h_data)
+        pred = process_nhl_match(m, elo, nhl_form, form_data, h2h_data, nhl_totals_cache)
         if pred:
             predictions.append(pred)
         if i % 3 == 2 or i == len(upcoming) - 1:
@@ -489,6 +575,7 @@ def batch_refresh():
             # Re-fetch and re-analyze
             matches = fetch_schedule()
             upcoming = _deduplicate_matches(matches.get('upcoming', []))
+            upcoming = [m for m in upcoming if m.get('status') in ('STATUS_SCHEDULED', 'STATUS_PRE')]
             elo, nhl_form, form_data, h2h_data = _init_nhl_data()
 
             for m in upcoming:

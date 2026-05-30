@@ -124,7 +124,7 @@ class TestFetchFlashscore:
         sys.modules['flashscore_other'] = mock_module
         try:
             return _fetch_flashscore(
-                datetime(2026, 5, 21, tzinfo=timezone.utc)
+                datetime(2026, 11, 15, tzinfo=timezone.utc)
             )
         finally:
             if old_module:

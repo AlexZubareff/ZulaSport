@@ -38,7 +38,7 @@ except:
 from tennis_models import TennisStats, _surface_group
 from tennis_ratings import TennisElo, combine_probabilities
 from fetch_tennis_odds import fetch_all_tennis_matches, mock_data, ODDS_FILE, parse_tennis_matches
-from tennis_names import ru_name
+from name_ru import ru_name
 
 # ─── Константы ──────────────────────────────────────────────────────
 MOW = timedelta(hours=3)
@@ -283,9 +283,8 @@ def _build_tennis_prompt(analysis: Dict, odds_match=None) -> str:
                 a_pct = f'{a["win_pct"]*100:.0f}%' if a else '—'
                 parts.append(f'  {s}: {ru_name(home)} {h_pct} vs {ru_name(away)} {a_pct}')
 
-    parts.append('\nНапиши прогноз живым человеческим языком, как обсуждаешь матч с другом. '
-                 'Без шаблонов, списков и заголовков. Начни нестандартно. '
-                 'В конце чёткий вердикт на исход и тотал (если есть).')
+    parts.append('\nНапиши прогноз. Сначала краткий анализ (1-2 предложения), ')
+    parts.append('затем чёткий вердикт: исход + уверенность в %.')
 
     return '\n'.join(parts)
 
@@ -299,22 +298,25 @@ def generate_tennis_prediction(analysis: Dict, odds_match=None) -> str:
         prompt = _build_tennis_prompt(analysis, odds_match)
         stats_block = _build_capper_stats_tennis()
 
-        system_msg = ('Ты спортивный аналитик с ярким стилем. Пиши прогноз как человек, а не как отчёт. '
-                      'Без списков, заголовков, приветствий и жирного текста. '
-                      'Каждый прогноз начинай уникально. В конце чёткий вердикт на исход (кто победит).')
+        system_msg = ('Ты спортивный аналитик. Пиши структурированный прогноз с аналитикой: '
+                      'аргументы за/против, ключевой фактор матча, итоговый вердикт. '
+                      'Формат: абзац анализа → краткий вердикт. '
+                      'В вердикте укажи: исход (кто победит), уверенность в %. '
+                      'Если есть данные по тоталу — добавь и его прогноз. '
+                      'Не используй шаблонные фразы про "время сбилось" или "посмотрим правде в глаза".')
         if stats_block:
             system_msg += stats_block
 
         try:
             resp = requests.post('https://api.deepseek.com/v1/chat/completions', json={
-                'model': 'deepseek-chat',
+                'model': 'deepseek-v4-flash',
                 'messages': [
                     {'role': 'system', 'content': system_msg},
                     {'role': 'user', 'content': prompt}
                 ],
-                'temperature': 0.65,
+                'temperature': 0.3,
                 'max_tokens': 1200
-            }, headers={'Authorization': f'Bearer {DEEPSEEK_KEY}'}, timeout=30)
+            }, headers={'Authorization': f'Bearer {DEEPSEEK_KEY}'}, timeout=60)
             data = resp.json()
             if 'choices' in data and len(data['choices']) > 0:
                 text = data['choices'][0]['message']['content'].strip()
@@ -327,11 +329,17 @@ def generate_tennis_prediction(analysis: Dict, odds_match=None) -> str:
 
         return _fallback_prediction(analysis, odds_match)
 
-    combined = analysis.get('combined', {})
-    match_info = {'home': analysis.get('home_ru', ''), 'away': analysis.get('away_ru', ''), 'league': 'Tennis'}
+    # Исправление: analysis не содержит ключей 'combined' или 'home_ru'
+    # Используем 'home'/'away' и 'combined_prob'/'combined_prob_away'
+    match_info = {'home': analysis.get('home', ''), 'away': analysis.get('away', ''), 'league': 'Tennis'}
+    elo = analysis.get('elo', {})
     sstats_data = {
-        'odds': [{'home': combined.get('player1_prob', 0.5), 'draw': 0, 'away': combined.get('player2_prob', 0.5)}],
-        'glicko': {'home_prob': combined.get('player1_prob', 0.5), 'away_prob': combined.get('player2_prob', 0.5), 'draw_prob': 0},
+        'odds': [{'home': odds_match.get('odds_home', 0.5) if odds_match else 0.5,
+                  'draw': 0,
+                  'away': odds_match.get('odds_away', 0.5) if odds_match else 0.5}],
+        'glicko': {'home_prob': elo.get('prob1', analysis.get('combined_prob', 0.5)),
+                   'away_prob': elo.get('prob2', analysis.get('combined_prob_away', 0.5)),
+                   'draw_prob': 0},
         'totals': {},
     }
     force_refresh = '--refresh' in sys.argv or '--no-cache' in sys.argv
@@ -353,6 +361,18 @@ def _fallback_prediction(analysis, odds_match=None):
                 f'(Elo {elo["elo2"]:.0f} vs {elo["elo1"]:.0f}). Рекомендую чистую победу {away}.')
 
 
+def _ru_text(text, *players):
+    """Заменить английские имена игроков на русские в тексте прогноза."""
+    for p in players:
+        if not p:
+            continue
+        ru = ru_name(p)
+        if ru != p:
+            # exact match whole word
+            text = text.replace(p, ru)
+    return text
+
+
 # ═══════════════════ Основной цикл ═══════════════════
 
 def process_tennis_match(match_info, elo_atp=None, stats_atp=None, elo_wta=None, stats_wta=None, odds_matches=None):
@@ -367,10 +387,6 @@ def process_tennis_match(match_info, elo_atp=None, stats_atp=None, elo_wta=None,
     elo = elo_atp if is_atp else elo_wta
     stats = stats_atp if is_atp else stats_wta
 
-    if not elo or not stats:
-        print('❌ нет данных')
-        return None
-
     # Определяем поверхность
     surface = match_info.get('surface', match_info.get('sport_key', ''))
     if 'clay' in str(surface).lower() or 'french' in str(surface).lower() or 'monte' in str(surface).lower() or 'rome' in str(surface).lower() or 'madrid' in str(surface).lower() or 'barcelona' in str(surface).lower():
@@ -379,6 +395,63 @@ def process_tennis_match(match_info, elo_atp=None, stats_atp=None, elo_wta=None,
         surface = 'Grass'
     else:
         surface = _determine_surface_from_league(tour)
+
+    if not elo or not stats:
+        print('⚠️ нет данных, прогноз по кэфам', end=' ', flush=True)
+        oh = match_info.get('odds_home')
+        oa = match_info.get('odds_away')
+        if oh and oa:
+            oh = float(oh)
+            oa = float(oa)
+            prob_h = oa / (oh + oa) if (oh + oa) > 0 else 0.5
+            prob_a = 1 - prob_h
+            # Создаём минимальный анализ
+            analysis = {
+                'home': home, 'away': away,
+                'surface': surface,
+                'elo': {'elo1': 1500, 'elo2': 1500, 'prob1': prob_h, 'prob2': prob_a},
+                'form': {'home': {'total': 0}, 'away': {'total': 0}},
+                'h2h': {'total': 0},
+                'serve_stats': {'home': {}, 'away': {}},
+                'ranking': {'home': None, 'away': None},
+                'surface_pref': {'home': {}, 'away': {}},
+                'combined_prob': prob_h,
+                'combined_prob_away': prob_a,
+            }
+            prob = analysis['combined_prob']
+            print(f'P1={prob*100:.0f}%', end=' ', flush=True)
+            # Fallback: без DeepSeek, только по кэфам
+            if prob > 0.5:
+                fav = ru_name(home)
+            else:
+                fav = ru_name(away)
+            pred_text = f'Фаворит по коэффициентам: {fav}. '
+            pred_text += f'Вероятность победы {ru_name(home)} — {prob*100:.0f}% (кэф {oh:.2f}), '
+            pred_text += f'{ru_name(away)} — {(1-prob)*100:.0f}% (кэф {oa:.2f}). '
+            odds_ratio = oa / oh
+            if odds_ratio > 3:
+                pred_text += f'Фаворит явный, но коэффициент низкий — проходимость вероятна.'
+            elif odds_ratio > 1.5:
+                pred_text += f'Фаворит умеренный, есть смысл в ставке.'
+            else:
+                pred_text += f'Матч близкий по коэффициентам — возможен любой исход.'
+            print(f'✅')
+            verdict_line = pred_text[:120]
+            pred_text = _ru_text(pred_text, home, away)
+            return {
+                'home': ru_name(home), 'away': ru_name(away),
+                'home_ru': ru_name(home), 'away_ru': ru_name(away),
+                'league': tour, 'time': match_info.get('match_time', ''),
+                'match_date': match_info.get('match_date', ''),
+                'verdict': verdict_line, 'prediction': pred_text,
+                'odds': {'home': oh, 'away': oa},
+                'glicko': {'home_prob': round(prob,3), 'away_prob': round(1-prob,3), 'draw_prob': 0.0,
+                          'home_rating': 1500, 'away_rating': 1500, 'home_xg': 0, 'away_xg': 0},
+                'generated_at': datetime.now().isoformat(),
+                'surface': surface, 'tournament': match_info.get('sport_key', ''),
+            }
+        print('❌ нет кэфов')
+        return None
 
     odds_match = _find_player_odds(home, away, odds_matches or [])
 
@@ -396,9 +469,11 @@ def process_tennis_match(match_info, elo_atp=None, stats_atp=None, elo_wta=None,
     if len(verdict_line) > 120:
         verdict_line = verdict_line[:120] + '...'
 
+    pred_text = _ru_text(pred_text, home, away)
+
     return {
-        'home': home,
-        'away': away,
+        'home': ru_name(home),
+        'away': ru_name(away),
         'home_ru': ru_name(home),
         'away_ru': ru_name(away),
         'league': tour,
@@ -465,12 +540,18 @@ def batch_generate(mock=False):
     stats_wta = None
 
     if atp_matches:
-        print('\n🎾 Загрузка ATP данных...')
-        elo_atp, stats_atp = _init_tennis_data('atp')
+        print('\n🎾 Загрузка ATP данных...', end=' ', flush=True)
+        try:
+            elo_atp, stats_atp = _init_tennis_data('atp')
+        except Exception as e:
+            print(f'⚠️ {e}')
 
     if wta_matches:
-        print('\n🎾 Загрузка WTA данных...')
-        elo_wta, stats_wta = _init_tennis_data('wta')
+        print('\n🎾 Загрузка WTA данных...', end=' ', flush=True)
+        try:
+            elo_wta, stats_wta = _init_tennis_data('wta')
+        except Exception as e:
+            print(f'⚠️ {e}')
 
     predictions = []
 
@@ -570,8 +651,32 @@ def _run_post_tennis_check(predictions):
             print(f'    - {e}')
 
 
+def _norm_key(league, home, away):
+    """Нормализованный ключ для дедупликации.
+    
+    Переводит оба имени в русский через name_ru (если это теннис),
+    чтобы 'Alejandro Tabilo' и 'Алехандро Табило' совпадали.
+    """
+    try:
+        from name_ru import ru_name
+        def normalize(name):
+            ru = ru_name(name)
+            # Берём последнее слово (фамилию) после перевода
+            parts = ru.strip().lower().split()
+            return parts[-1] if parts else name.lower()
+    except Exception:
+        # Fallback: просто последнее слово в нижнем регистре
+        def normalize(name):
+            parts = name.strip().lower().split()
+            return parts[-1] if parts else name.lower()
+    return f"{league}||{normalize(home)}||{normalize(away)}"
+
+
 def _save_predictions(new_predictions):
-    """Добавить теннисные прогнозы в общую очередь."""
+    """Добавить теннисные прогнозы в общую очередь.
+    
+    Дедупликация: если спор+фамилии совпадают, оставляем последнюю версию.
+    """
     new_predictions = [p for p in new_predictions if p]
     if not new_predictions:
         return
@@ -585,18 +690,26 @@ def _save_predictions(new_predictions):
         try:
             with open(PRED_PATH, encoding='utf-8') as f:
                 for p in json.load(f).get('predictions', []):
-                    key = f"{p.get('league','')}||{p.get('home','')}||{p.get('away','')}"
-                    existing[key] = p
+                    key = _norm_key(p.get('league',''), p.get('home',''), p.get('away',''))
+                    # Для неменяющихся ключей храним все варианты
+                    existing.setdefault(key, []).append(p)
         except:
             pass
 
+    # Новые прогнозы: сохраняем по нормализованному ключу, затирая старые
     for p in new_predictions:
-        key = f"{p.get('league','')}||{p.get('home','')}||{p.get('away','')}"
-        existing[key] = p
+        key = _norm_key(p.get('league',''), p.get('home',''), p.get('away',''))
+        existing[key] = [p]
+
+    # Собираем обратно: из каждого ключа берём последнюю запись
+    merged = []
+    for items in existing.values():
+        # Берём последнюю (самую свежую, с русскими именами)
+        merged.append(items[-1])
 
     output = {
-        'predictions': list(existing.values()),
-        'count': len(existing),
+        'predictions': merged,
+        'count': len(merged),
         'generated_at': datetime.now().isoformat(),
     }
 
@@ -606,6 +719,36 @@ def _save_predictions(new_predictions):
     if _DB_AVAILABLE:
         for p in new_predictions:
             p['status'] = 'upcoming'
+            try:
+                # Сохраняем матч в таблицу matches (для расписания/результатов)
+                match_date = (p.get('match_date') or '').strip()
+                # Конвертируем DD.MM.YYYY → YYYY-MM-DD
+                if match_date and '.' in match_date:
+                    try:
+                        from datetime import datetime as _dt
+                        match_date = _dt.strptime(match_date[:10], '%d.%m.%Y').strftime('%Y-%m-%d')
+                    except:
+                        pass
+                if not match_date or match_date.count('-') != 2 or len(match_date) != 10:
+                    match_date = datetime.now().strftime('%Y-%m-%d')
+                tournament = p.get('tournament', '') or ''
+                # Чистим префикс tennis_ для отображения
+                if tournament.startswith('tennis_'):
+                    tournament = tournament[7:]
+                match_data = {
+                    'league': p['league'],
+                    'home': p['home'],
+                    'away': p['away'],
+                    'match_date': match_date,
+                    'match_time': p.get('match_time', '') or p.get('time', ''),
+                    'status': 'scheduled',
+                    'source': 'theoddsapi',
+                    'tournament': tournament,
+                }
+                match_data['match_time'] = match_data['match_time'][:5] if len(match_data['match_time']) > 5 else match_data['match_time']
+                db.save_match(match_data)
+            except Exception as e:
+                print(f'  ⚠️ save_match: {e}')
             try:
                 db.save_prediction(p)
             except:

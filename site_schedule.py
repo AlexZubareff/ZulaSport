@@ -11,7 +11,7 @@ from date_utils import format_date_display, format_date_iso, today_display, toda
 import site_common
 from site_common import escape, _team_logo, render_match_card
 from generate_site_legacy import get_tvguide_section
-from tennis_names import ru_name as tennis_ru_name
+from name_ru import ru_name as tennis_ru_name
 from data_schemas import validate
 
 try:
@@ -28,6 +28,10 @@ def _render_card(m, preds_lookup, live_lookup=None):
     league = m.get('league', '')
     home = m.get('home', '')
     away = m.get('away', '')
+    is_tennis = league in ('ATP', 'WTA')
+    if is_tennis:
+        home = tennis_ru_name(home) or home
+        away = tennis_ru_name(away) or away
     time_str = m.get('match_time', '') or m.get('time', '') or ''
     import re
     time_str = re.sub(r'^\d{2}\.\d{2}\.\s*', '', time_str)
@@ -36,6 +40,11 @@ def _render_card(m, preds_lookup, live_lookup=None):
     home_logo = _team_logo(home, league)
     away_logo = _team_logo(away, league)
     pred = preds_lookup.get((league, home, away))
+    if not pred and is_tennis:
+        # Fallback: ищем по английскому имени (старые данные)
+        orig_home = m.get('home', '')
+        orig_away = m.get('away', '')
+        pred = preds_lookup.get((league, orig_home, orig_away))
     data_key = f'{league}||{home}||{away}'
 
     # Проверяем LIVE
@@ -95,6 +104,9 @@ def generate_schedule(output_path='/var/www/sport/schedule.html'):
         try:
             for p in db.get_queue():
                 preds_lookup[(p['league'], p['home'], p['away'])] = dict(p)
+                # Теннис: также индексируем по английскому имени (для совместимости с matches)
+                if p.get('league') in ('ATP', 'WTA') and p.get('home_ru') and p.get('away_ru'):
+                    preds_lookup[(p['league'], p.get('home_ru'), p.get('away_ru'))] = dict(p)
 
             today_matches = [dict(m) for m in db.execute(
                 "SELECT * FROM matches WHERE match_date = %s "
@@ -123,18 +135,39 @@ def generate_schedule(output_path='/var/www/sport/schedule.html'):
                 with open(fpath, encoding='utf-8') as f:
                     for p in json.load(f).get('predictions', []):
                         preds_lookup[(p.get('league',''), p.get('home',''), p.get('away',''))] = p
+                        if p.get('league') in ('ATP', 'WTA') and p.get('home_ru') and p.get('away_ru'):
+                            preds_lookup[(p['league'], p['home_ru'], p['away_ru'])] = p
             except:
                 pass
 
     def section_matches(matches, is_upcoming=True):
         html = '<div class="card-grid">'
-        prev = ''
+        prev_key = None
         for m in matches:
             league = m.get('league', m.get('sport', ''))
-            if league != prev:
+            tournament = m.get('tournament', '')
+            key = f'{league}||{tournament}'
+            if key != prev_key:
                 sport = 'tennis' if league in ('ATP', 'WTA') else 'football'
-                html += site_common.section_header(league, sport)
-                prev = league
+                label = league
+                if tournament:
+                    t = tournament
+                    for prefix in ['atp_', 'wta_']:
+                        if t.startswith(prefix):
+                            t = t[len(prefix):]
+                            break
+                    t = t.replace('_', ' ').replace('-', ' ').title()
+                    gender = 'Мужчины' if league == 'ATP' else 'Женщины'
+                    if t.lower() in ('french open', 'roland garros'):
+                        label = f'🏆 Roland Garros. {gender}'
+                    elif t.lower() == 'italian open':
+                        label = f'Italian Open. {gender}'
+                    else:
+                        label = f'{t}. {gender}'
+                else:
+                    label = league
+                html += f'<div class="section-sub">{label}</div>'
+                prev_key = key
             html += _render_card(m, preds_lookup, live_lookup)
         html += '</div>'
         return html

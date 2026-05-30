@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>📊 Статистика прогнозов Zula Sport</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      padding: 1rem;
+      min-height: 100vh;
+    }
+    .header {
+      max-width: 1200px;
+      margin: 0 auto 1.5rem;
+      text-align: center;
+    }
+    .header h1 {
+      color: #e94560;
+      font-size: 1.6rem;
+      letter-spacing: 0.03em;
+    }
+    .header .date {
+      color: #888;
+      font-size: 0.85rem;
+      margin-top: 0.3rem;
+    }
+    .dashboard {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 1rem;
+    }
+    .dashboard .wide {
+      grid-column: 1 / -1;
+    }
+    .card {
+      background: #16213e;
+      border-radius: 12px;
+      padding: 1.25rem;
+      border: 1px solid #0f3460;
+    }
+    .card h2 {
+      color: #e94560;
+      font-size: 1.1rem;
+      margin-bottom: 1rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .card .chart-container {
+      position: relative;
+      width: 100%;
+      min-height: 250px;
+    }
+    .card .chart-container.tall {
+      min-height: 300px;
+    }
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 0.75rem;
+    }
+    .stat-item {
+      text-align: center;
+      padding: 0.75rem 0.5rem;
+    }
+    .stat-value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #e94560;
+    }
+    .stat-value.green { color: #2ecc71; }
+    .stat-value.yellow { color: #f1c40f; }
+    .stat-value.red { color: #e74c3c; }
+    .stat-label {
+      font-size: 0.8rem;
+      color: #888;
+      margin-top: 0.2rem;
+    }
+    .stat-sub {
+      font-size: 0.7rem;
+      color: #666;
+      margin-top: 0.1rem;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+    th {
+      text-align: left;
+      color: #e94560;
+      padding: 0.5rem;
+      border-bottom: 1px solid #0f3460;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    th:hover { color: #ff6b81; }
+    td { padding: 0.5rem; border-bottom: 1px solid rgba(15,52,96,0.5); }
+    tr:last-child td { border-bottom: none; }
+    .badge {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .badge.green { background: rgba(46,204,113,0.2); color: #2ecc71; }
+    .badge.yellow { background: rgba(241,196,15,0.2); color: #f1c40f; }
+    .badge.red { background: rgba(231,76,60,0.2); color: #e74c3c; }
+    .badge.gray { background: rgba(136,136,136,0.2); color: #888; }
+    canvas { width: 100% !important; }
+    @media (max-width: 600px) {
+      .dashboard { grid-template-columns: 1fr; }
+      body { padding: 0.5rem; }
+      .stat-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+  <script>/* Chart.js v4.5.1 inline */</script>
+</head>
+<body>
+  <div class="header">
+    <h1>📊 Статистика прогнозов Zula Sport</h1>
+    <div class="date">Обновлено: 25.05.2026 • Всего прогнозов: 33</div>
+  </div>
+
+  <div class="dashboard">
+
+    <!-- KPI cards -->
+    <div class="card wide">
+      <div class="stat-grid" id="kpi-grid">
+        <div class="stat-item">
+          <div class="stat-value">33</div>
+          <div class="stat-label">Всего прогнозов</div>
+          <div class="stat-sub">все завершены</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value red">33.3%</div>
+          <div class="stat-label">Точность исходов</div>
+          <div class="stat-sub">11 / 33</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value yellow">57.7%</div>
+          <div class="stat-label">Точность тоталов</div>
+          <div class="stat-sub">15 / 26</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">9</div>
+          <div class="stat-label">В очереди</div>
+          <div class="stat-sub">не оценены</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bar chart: sports comparison -->
+    <div class="card">
+      <h2>Точность по спортам</h2>
+      <div class="chart-container">
+        <canvas id="sportsBar"></canvas>
+      </div>
+    </div>
+
+    <!-- Doughnut: outcome distribution -->
+    <div class="card">
+      <h2>Распределение исходов</h2>
+      <div class="chart-container">
+        <canvas id="outcomeDoughnut"></canvas>
+      </div>
+    </div>
+
+    <!-- Line chart: daily dynamics -->
+    <div class="card wide">
+      <h2>Динамика по дням</h2>
+      <div class="chart-container tall">
+        <canvas id="dailyLine"></canvas>
+      </div>
+    </div>
+
+    <!-- Doughnut: totals distribution -->
+    <div class="card">
+      <h2>Распределение тоталов</h2>
+      <div class="chart-container">
+        <canvas id="totalsDoughnut"></canvas>
+      </div>
+    </div>
+
+    <!-- Table: sports breakdown -->
+    <div class="card">
+      <h2>Спорты — детали</h2>
+      <table>
+        <thead>
+          <tr>
+            <th onclick="sortTable(this, 0)">Спорт</th>
+            <th onclick="sortTable(this, 1)">Прогнозов</th>
+            <th onclick="sortTable(this, 2)">Исход</th>
+            <th onclick="sortTable(this, 3)">Тотал</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>🏆 АПЛ</td><td>22</td><td><span class="badge red">31.8%</span></td><td><span class="badge green">68.2%</span></td></tr>
+          <tr><td>🏒 НХЛ</td><td>3</td><td><span class="badge green">66.7%</span></td><td><span class="badge gray">—</span></td></tr>
+          <tr><td>🏀 NBA</td><td>4</td><td><span class="badge red">0.0%</span></td><td><span class="badge gray">—</span></td></tr>
+          <tr><td>⚽ Серия А</td><td>4</td><td><span class="badge yellow">50.0%</span></td><td><span class="badge red">0.0%</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Table: daily dynamics -->
+    <div class="card">
+      <h2>Динамика по дням</h2>
+      <table>
+        <thead>
+          <tr>
+            <th onclick="sortTable(this, 0)">Дата</th>
+            <th onclick="sortTable(this, 1)">Матчей</th>
+            <th onclick="sortTable(this, 2)">Исход</th>
+            <th onclick="sortTable(this, 3)">Тотал</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>20.05</td><td>2</td><td><span class="badge green">50.0%</span></td><td><span class="badge green">100%</span></td></tr>
+          <tr><td>21.05</td><td>1</td><td><span class="badge red">0.0%</span></td><td><span class="badge gray">—</span></td></tr>
+          <tr><td>23.05</td><td>1</td><td><span class="badge red">0.0%</span></td><td><span class="badge gray">—</span></td></tr>
+          <tr><td>24.05</td><td>12</td><td><span class="badge red">33.3%</span></td><td><span class="badge yellow">50.0%</span></td></tr>
+          <tr><td>25.05</td><td>14</td><td><span class="badge red">35.7%</span></td><td><span class="badge yellow">58.3%</span></td></tr>
+          <tr><td>27.05</td><td>2</td><td><span class="badge green">50.0%</span></td><td><span class="badge gray">—</span></td></tr>
+          <tr><td>31.05</td><td>1</td><td><span class="badge red">0.0%</span></td><td><span class="badge gray">—</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Table: outcome detail -->
+    <div class="card">
+      <h2>Детали исходов</h2>
+      <table>
+        <thead>
+          <tr>
+            <th onclick="sortTable(this, 0)">Исход</th>
+            <th onclick="sortTable(this, 1)">Сбылось</th>
+            <th onclick="sortTable(this, 2)">Всего</th>
+            <th onclick="sortTable(this, 3)">Точность</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>П1 (home)</td><td>5</td><td>16</td><td><span class="badge red">31.3%</span></td></tr>
+          <tr><td>П2 (away)</td><td>4</td><td>11</td><td><span class="badge red">36.4%</span></td></tr>
+          <tr><td>X (draw)</td><td>1</td><td>6</td><td><span class="badge red">16.7%</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Table: totals detail -->
+    <div class="card">
+      <h2>Детали тоталов</h2>
+      <table>
+        <thead>
+          <tr>
+            <th onclick="sortTable(this, 0)">Тип</th>
+            <th onclick="sortTable(this, 1)">Сбылось</th>
+            <th onclick="sortTable(this, 2)">Всего</th>
+            <th onclick="sortTable(this, 3)">Точность</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Over</td><td>10</td><td>16</td><td><span class="badge green">62.5%</span></td></tr>
+          <tr><td>Under</td><td>5</td><td>10</td><td><span class="badge yellow">50.0%</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <script src="/opt/data/vendor/chart.umd.min.js"></script>
+  <script>
+    Chart.defaults.color = '#e0e0e0';
+    Chart.defaults.font.family = "-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif";
+
+    // 1. Bar chart — accuracy by sport
+    new Chart(document.getElementById('sportsBar'), {
+      type: 'bar',
+      data: {
+        labels: ['АПЛ', 'НХЛ', 'NBA', 'Серия А'],
+        datasets: [
+          {
+            label: 'Исход',
+            data: [31.8, 66.7, 0.0, 50.0],
+            backgroundColor: ['rgba(233,69,96,0.7)', 'rgba(233,69,96,0.7)', 'rgba(233,69,96,0.7)', 'rgba(233,69,96,0.7)'],
+            borderColor: '#e94560',
+            borderWidth: 1,
+            borderRadius: 3
+          },
+          {
+            label: 'Тотал',
+            data: [68.2, null, null, 0.0],
+            backgroundColor: ['rgba(15,52,96,0.8)', 'rgba(15,52,96,0.8)', 'rgba(15,52,96,0.8)', 'rgba(15,52,96,0.8)'],
+            borderColor: '#0f3460',
+            borderWidth: 1,
+            borderRadius: 3
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            labels: { color: '#e0e0e0', padding: 12 }
+          }
+        },
+        scales: {
+          x: {
+            ticks: { color: '#888' },
+            grid: { color: '#0f3460' }
+          },
+          y: {
+            beginAtZero: true,
+            max: 100,
+            ticks: { color: '#888', callback: function(v) { return v + '%'; } },
+            grid: { color: '#0f3460' }
+          }
+        }
+      }
+    });
+
+    // 2. Doughnut — outcome distribution
+    new Chart(document.getElementById('outcomeDoughnut'), {
+      type: 'doughnut',
+      data: {
+        labels: ['П1 (home)', 'П2 (away)', 'X (draw)'],
+        datasets: [{
+          data: [16, 11, 6],
+          backgroundColor: ['#e94560', '#0f3460', '#e0e0e0'],
+          borderColor: '#16213e',
+          borderWidth: 2
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: { color: '#e0e0e0', padding: 12 }
+          },
+          tooltip: {
+            callbacks: {
+              label: function(ctx) {
+                var total = ctx.dataset.data.reduce(function(a,b){return a+b;},0);
+                var pct = ((ctx.parsed / total) * 100).toFixed(1);
+                var hits = {16:5, 11:4, 6:1}[ctx.parsed] || 0;
+                var acc = ((hits / ctx.parsed) * 100).toFixed(1);
+                return ctx.label + ': ' + ctx.parsed + ' (' + pct + '%) — точность ' + acc + '%';
+              }
+            }
+          }
+        }
+      }
+    });
+
+    // 3. Line chart — daily dynamics
+    new Chart(document.getElementById('dailyLine'), {
+      type: 'line',
+      data: {
+        labels: ['20.05', '21.05', '23.05', '24.05', '25.05', '27.05', '31.05'],
+        datasets: [
+          {
+            label: 'Точность исходов (%)',
+            data: [50.0, 0.0, 0.0, 33.3, 35.7, 50.0, 0.0],
+            borderColor: '#e94560',
+            backgroundColor: 'rgba(233,69,96,0.1)',
+            fill: true,
+            tension: 0.3,
+            pointRadius: 5,
+            pointBackgroundColor: '#e94560'
+          },
+          {
+            label: 'Точность тоталов (%)',
+            data: [100.0, null, null, 50.0, 58.3, null, null],
+            borderColor: '#0f3460',
+            backgroundColor: 'rgba(15,52,96,0.15)',
+            fill: true,
+            tension: 0.3,
+            pointRadius: 5,
+            pointBackgroundColor: '#0f3460',
+            borderDash: [6, 3]
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            labels: { color: '#e0e0e0', padding: 12 }
+          }
+        },
+        scales: {
+          x: {
+            ticks: { color: '#888' },
+            grid: { color: '#0f3460' }
+          },
+          y: {
+            beginAtZero: true,
+            max: 100,
+            ticks: { color: '#888', callback: function(v) { return v + '%'; } },
+            grid: { color: '#0f3460' }
+          }
+        }
+      }
+    });
+
+    // 4. Doughnut — totals distribution
+    new Chart(document.getElementById('totalsDoughnut'), {
+      type: 'doughnut',
+      data: {
+        labels: ['Over', 'Under'],
+        datasets: [{
+          data: [16, 10],
+          backgroundColor: ['#e94560', '#0f3460'],
+          borderColor: '#16213e',
+          borderWidth: 2
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: { color: '#e0e0e0', padding: 12 }
+          },
+          tooltip: {
+            callbacks: {
+              label: function(ctx) {
+                var total = ctx.dataset.data.reduce(function(a,b){return a+b;},0);
+                var pct = ((ctx.parsed / total) * 100).toFixed(1);
+                var hits = {16:10, 10:5}[ctx.parsed] || 0;
+                var acc = ((hits / ctx.parsed) * 100).toFixed(1);
+                return ctx.label + ': ' + ctx.parsed + ' (' + pct + '%) — точность ' + acc + '%';
+              }
+            }
+          }
+        }
+      }
+    });
+
+    // Table sorting function
+    function sortTable(th, col) {
+      var table = th.closest('table');
+      var tbody = table.querySelector('tbody');
+      var rows = Array.from(tbody.querySelectorAll('tr'));
+      var asc = table._sortCol === col ? !table._sortAsc : true;
+      table._sortCol = col;
+      table._sortAsc = asc;
+      rows.sort(function(a, b) {
+        var va = a.children[col].textContent.trim().replace('%','').replace('—','0');
+        var vb = b.children[col].textContent.trim().replace('%','').replace('—','0');
+        var na = parseFloat(va), nb = parseFloat(vb);
+        if (!isNaN(na) && !isNaN(nb)) return asc ? na - nb : nb - na;
+        return asc ? va.localeCompare(vb) : vb.localeCompare(va);
+      });
+      rows.forEach(function(r) { tbody.appendChild(r); });
+    }
+  </script>
+</body>
+</html>

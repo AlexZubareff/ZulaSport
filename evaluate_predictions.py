@@ -10,7 +10,7 @@
 """
 
 import os, json
-from datetime import datetime, timezone
+from datetime import datetime, date as date_type, timezone
 from collections import defaultdict
 
 # Импорт маппера команд
@@ -29,6 +29,7 @@ PRED_PATH = '/opt/predictions_data.json'
 HISTORY_PATH = '/opt/predictions_history.json'
 LIVE_PATH = '/tmp/live_scores_data.json'
 RESULTS_PATH = '/tmp/daily_results_data.json'
+RESULTS_HISTORY_PATH = '/tmp/results_data.json'
 UTC = timezone.utc
 
 
@@ -198,15 +199,32 @@ def _build_score_lookup():
     lookup = {}
     all_result_names = []
 
+    # 0. Historical results (results_data.json — догон старых матчей)
+    hist = load_json(RESULTS_HISTORY_PATH, {})
+    for r in hist.get('results', []):
+        league = r.get('league', '')
+        home = r.get('home', '')
+        away = r.get('away', '')
+        score = r.get('score')
+        if league and home and away and score:
+            home_canon, _ = team_mapper.resolve(home)
+            away_canon, _ = team_mapper.resolve(away)
+            lookup[(league, home_canon, away_canon)] = (score, 'finished')
+            lookup[(league, away_canon, home_canon)] = (score, 'finished')
+
     # 1. Live scores (только finished — счёт окончательный)
     live = load_json(LIVE_PATH, {})
     for key, m in live.get('matches', {}).items():
         if m.get('status') in ('finished',) and m.get('score'):
             parts = key.split('||', 2)
             if len(parts) == 3:
+                league = parts[0]
                 home_canon, _ = team_mapper.resolve(parts[1])
                 away_canon, _ = team_mapper.resolve(parts[2])
-                lookup[(parts[0], home_canon, away_canon)] = (m['score'], 'finished')
+                # Прямой порядок
+                lookup[(league, home_canon, away_canon)] = (m['score'], 'finished')
+                # Обратный порядок — прогноз может указывать home/away наоборот
+                lookup[(league, away_canon, home_canon)] = (m['score'], 'finished')
 
     # 2. Daily results (finished)
     results = load_json(RESULTS_PATH, {})
@@ -222,6 +240,8 @@ def _build_score_lookup():
             all_result_names.append(home)
             all_result_names.append(away)
             lookup[k] = (score, 'finished')
+            # Обратный порядок — прогноз может указывать home/away наоборот
+            lookup[(league, away_canon, home_canon)] = (score, 'finished')
 
     # 3. БД: finished-матчи за последние 7 дней
     if _DB_AVAILABLE:
@@ -236,6 +256,7 @@ def _build_score_lookup():
                 score = r.get('score', '')
                 if league and home and away and score:
                     lookup[(league, home, away)] = (score, 'finished')
+                    lookup[(league, away, home)] = (score, 'finished')
         except Exception as e:
             print(f'  ⚠️ БД: {e}')
 
@@ -294,6 +315,15 @@ def _db_row_to_legacy(p):
         d['prediction'] = d.pop('prediction_text')
     if 'match_time' in d and 'time' not in d:
         d['time'] = d.pop('match_time')
+    # DB хранит datetime/date — конвертируем все в строки для JSON
+    for k in list(d.keys()):
+        v = d[k]
+        if isinstance(v, datetime):
+            d[k] = v.isoformat()
+        elif isinstance(v, date_type):
+            d[k] = v.strftime('%d.%m.%Y')
+    if not d.get('date') and d.get('match_date'):
+        d['date'] = d['match_date']
     return d
 
 
@@ -407,7 +437,7 @@ def evaluate():
     evaluated = []     # прогнозы, которые получили счёт → в историю
 
     def _pred_key(p):
-        return (p.get('league',''), p.get('home',''), p.get('away',''), p.get('generated_at',''))
+        return (p.get('league',''), p.get('home',''), p.get('away',''))
     
     queue_keys = {_pred_key(qp) for qp in queue}
     initial_queue_keys = set(queue_keys)
@@ -425,12 +455,9 @@ def evaluate():
 
             # Запись для истории
             gen = pred.get('generated_at', now.isoformat())
-            try:
-                pred_date = datetime.fromisoformat(gen).strftime('%d.%m.%Y')
-            except:
-                pred_date = now.strftime('%d.%m.%Y')
+            pred_date = pred.get('date', now.strftime('%d.%m.%Y'))
 
-            match_id = f"{pred_date}||{pred.get('league','')}||{pred.get('home','')}||{pred.get('away','')}"
+            match_id = pred.get('match_id') or f"{pred_date}||{pred.get('league','')}||{pred.get('home','')}||{pred.get('away','')}"
 
             history_entry = {
                 'match_id': match_id,
@@ -536,8 +563,15 @@ def evaluate():
     history['last_updated'] = now.isoformat()
     _save_to_json(HISTORY_PATH, history, 'predictions_history')
 
-    # ── Обновляем очередь (удаляем оценённые) ──
-    still_waiting = [qp for qp in queue if _pred_key(qp) in queue_keys]
+    # ── Обновляем очередь (удаляем оценённые, убираем дубликаты) ──
+    # Оставляем только последний прогноз для каждой пары (league+home+away)
+    dedup = {}
+    for qp in queue:
+        if _pred_key(qp) in queue_keys:
+            key = _pred_key(qp)
+            if key not in dedup or qp.get('generated_at', '') > dedup[key].get('generated_at', ''):
+                dedup[key] = qp
+    still_waiting = list(dedup.values())
     if still_waiting:
         output = {
             'predictions': still_waiting,

@@ -1,15 +1,15 @@
 {
   "ratings": {
-    "Oklahoma City Thunder": 1720.6,
-    "San Antonio Spurs": 1816.0,
-    "New York Knicks": 1561.1,
-    "Cleveland Cavaliers": 1438.9
+    "Oklahoma City Thunder": 1555.6,
+    "San Antonio Spurs": 1981.0,
+    "New York Knicks": 1765.2,
+    "Cleveland Cavaliers": 1234.8
   },
   "match_count": {
-    "New York Knicks": 7,
-    "Cleveland Cavaliers": 7,
-    "Oklahoma City Thunder": 5,
-    "San Antonio Spurs": 5
+    "New York Knicks": 60,
+    "Cleveland Cavaliers": 60,
+    "Oklahoma City Thunder": 34,
+    "San Antonio Spurs": 34
   },
-  "updated_at": "2026-05-21T09:00:01.452754"
+  "updated_at": "2026-05-30T01:00:02.176935"
 }

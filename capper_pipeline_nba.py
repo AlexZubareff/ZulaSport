@@ -448,6 +448,8 @@ def batch_generate(mock=False):
     print('🏀 Загрузка данных NBA...')
     matches = fetch_schedule()
     upcoming = _deduplicate_matches(matches.get('upcoming', []))
+    # Отфильтровать уже начавшиеся матчи — оставить только предстоящие
+    upcoming = [m for m in upcoming if m.get('status') in ('STATUS_SCHEDULED', 'STATUS_PRE')]
     finished = matches.get('finished', [])
 
     if not upcoming:
@@ -521,6 +523,7 @@ def batch_refresh():
             # Re-fetch and re-analyze
             matches = fetch_schedule()
             upcoming = _deduplicate_matches(matches.get('upcoming', []))
+            upcoming = [m for m in upcoming if m.get('status') in ('STATUS_SCHEDULED', 'STATUS_PRE')]
             elo, nba_form, form_data, h2h_data = _init_nba_data()
 
             for m in upcoming:

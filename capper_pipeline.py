@@ -848,8 +848,8 @@ def process_match(match_info, fetch_fs=True, fetch_lineups_flag=False, pw_page=N
 # ═══════════════════ Batch modes ═══════════════════
 
 def _load_matches():
-    """Загрузить матчи для прогнозов: сначала upcoming_matches.json,
-    потом fallback на tv_channels_data.json (футбол + game_id)."""
+    """Загрузить матчи для прогнозов: сначала из БД,
+    потом fallback на upcoming_matches.json, потом tv_channels."""
     import storage as _st
     active = set(_PRED_LEAGUES.keys())
 
@@ -872,12 +872,39 @@ def _load_matches():
                         })
         return matches
 
-    # Пробуем upcoming_matches.json (приоритет) — в разных форматах
+    # БД: читаем upcoming матчи active лиг с game_id > 0
+    if _DB_AVAILABLE:
+        try:
+            active_list = list(active)
+            placeholders = ', '.join(['%s'] * len(active_list))
+            rows = db.execute(
+                f"SELECT home, away, league, match_date, match_time, game_id FROM matches "
+                f"WHERE status = 'upcoming' AND league IN ({placeholders}) "
+                f"AND game_id IS NOT NULL AND game_id > 0 "
+                f"ORDER BY match_date, match_time",
+                active_list
+            )
+            if rows:
+                matches = []
+                for r in rows:
+                    matches.append({
+                        'home': r['home'],
+                        'away': r['away'],
+                        'league': r['league'],
+                        'time': r.get('match_time', ''),
+                        'game_id': r['game_id'],
+                        'match_date': str(r.get('match_date', '')),
+                    })
+                print(f'📖 БД: {len(matches)} матчей для прогнозов')
+                return matches
+        except Exception as e:
+            print(f'  ⚠️ БД upcoming: {e}')
+
+    # Fallback: upcoming_matches.json
     import json as _ujson
     _upcoming_path = '/tmp/upcoming_matches.json'
     matches = _flatten(_upcoming_path, is_upcoming=True)
     if not matches and os.path.exists(_upcoming_path):
-        # Формат {matches: [...]} — прямой массив
         try:
             with open(_upcoming_path, encoding='utf-8') as _f:
                 _ud = json.load(_f)
@@ -889,7 +916,7 @@ def _load_matches():
         except:
             pass
     if matches:
-        print(f'📖 upcoming_matches.json: {len(matches)} матчей')
+        print(f'📖 upcoming_matches.json: {len(matches)} матчей (fallback)')
         return matches
 
     # Fallback: tv_channels_data.json
@@ -994,15 +1021,12 @@ def batch_generate():
 def batch_refresh():
     """Обновить прогнозы для матчей, до которых <= 1 час."""
     now = datetime.now(UTC) + MOW
-    path = '/tmp/upcoming_matches.json'
-    if not os.path.exists(path):
-        return
-
-    with open(path, encoding='utf-8') as f:
-        data = json.load(f)
-    matches = data.get('matches', [])
     active = set(_PRED_LEAGUES.keys())
-    matches = [m for m in matches if m.get('league') in active]
+
+    # Загружаем матчи из БД
+    matches = _load_matches()
+    if not matches:
+        return
 
     # Загружаем текущие прогнозы
     existing = {}
@@ -1093,29 +1117,7 @@ def _save_predictions(new_predictions):
         assert isinstance(p.get('away'), str), f'away должно быть str: {p}'
         assert isinstance(p.get('prediction'), str), f'prediction должно быть str: {p}'
 
-    # JSON (как было)
-    existing = {}
-    pred_path = '/opt/predictions_data.json'
-    if os.path.exists(pred_path):
-        try:
-            with open(pred_path, encoding='utf-8') as f:
-                for p in json.load(f).get('predictions', []):
-                    existing[_make_match_key(p)] = p
-        except:
-            pass
-
-    for p in new_predictions:
-        existing[_make_match_key(p)] = p
-
-    output = {
-        'predictions': list(existing.values()),
-        'count': len(existing),
-        'generated_at': datetime.now().isoformat(),
-    }
-    with open(pred_path, 'w', encoding='utf-8') as f:
-        json.dump(output, f, ensure_ascii=False, indent=2)
-
-    # БД
+    # БД (SSoT)
     if _DB_AVAILABLE:
         for p in new_predictions:
             p['status'] = 'upcoming'
@@ -1137,44 +1139,41 @@ def _save_predictions(new_predictions):
 def _run_post_generate_check(predictions, schema_name='predictions_data'):
     """Проверить, что прогнозы сохранились корректно после batch-генерации."""
     from data_schemas import validate
-    import os, json
 
-    pred_path = '/opt/predictions_data.json'
-
-    # 1. Проверка что файл существует
-    if not os.path.exists(pred_path):
-        print('  ⚠️ Post-check: predictions_data.json не найден!')
+    if not _DB_AVAILABLE:
+        print('  ⚠️ Post-check: БД недоступна, пропускаем')
         return
 
     try:
-        with open(pred_path, encoding='utf-8') as f:
-            data = json.load(f)
+        queue = db.get_queue()
     except Exception as e:
-        print(f'  ❌ Post-check: ошибка чтения predictions_data.json: {e}')
+        print(f'  ❌ Post-check: ошибка чтения БД: {e}')
         return
 
-    preds = data.get('predictions', [])
-
-    # 2. Количество прогнозов > 0
-    if len(preds) == 0:
-        print('  ❌ Post-check: predictions_data.json пуст!')
+    # 1. Количество прогнозов > 0
+    if not queue:
+        print('  ❌ Post-check: очередь прогнозов в БД пуста!')
         return
 
-    # 3. Валидация по схеме
-    ok, errors = validate(data, schema_name)
-    if ok:
-        print(f'  ✅ Post-check: {len(preds)} прогнозов, схема OK')
-    else:
-        print(f'  ⚠️ Post-check: {len(errors)} ошибок схемы (первые 3):')
-        for e in errors[:3]:
-            print(f'    - {e}')
-
-    # 4. Каждый прогноз проходит проверку
-    for i, p in enumerate(preds):
+    # 2. Валидация каждого прогноза
+    for i, p in enumerate(queue):
         for field in ('league', 'home', 'away', 'prediction'):
             if field not in p:
                 print(f'  ⚠️ Post-check: прогноз [{i}] без поля {field}')
                 break
+
+    print(f'  ✅ Post-check: {len(queue)} прогнозов в БД')
+
+    # 3. Валидация по схеме (если доступна)
+    try:
+        data = {'predictions': [dict(p) for p in queue]}
+        ok, errors = validate(data, schema_name)
+        if not ok:
+            print(f'  ⚠️ Post-check: {len(errors)} ошибок схемы (первые 3):')
+            for e in errors[:3]:
+                print(f'    - {e}')
+    except Exception:
+        pass
 
 
 # ═══════════════════ CLI ═══════════════════

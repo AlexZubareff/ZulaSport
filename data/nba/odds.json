@@ -1,29 +1,29 @@
 {
   "odds": [
     {
-      "game_id": "401873342",
-      "home": "New York Knicks",
-      "away": "Cleveland Cavaliers",
+      "game_id": "401873203",
+      "home": "Oklahoma City Thunder",
+      "away": "San Antonio Spurs",
       "odds": {
-        "home_dec": 1.46,
-        "away_dec": 2.8,
-        "home_ml_us": "-218",
-        "away_ml_us": "+180",
-        "spread": -6.5,
-        "over_under": 215.5,
-        "details": "NY -6.5",
+        "home_dec": 1.65,
+        "away_dec": 2.3,
+        "home_ml_us": "-155",
+        "away_ml_us": "+130",
+        "spread": -3.5,
+        "over_under": 212.5,
+        "details": "OKC -3.5",
         "provider": "DraftKings"
       },
       "series": {
         "type": "playoff",
-        "summary": "NY leads series 1-0",
+        "summary": "Series tied 3-3",
         "total_games": 7,
-        "home_wins": 1,
-        "away_wins": 0
+        "home_wins": 3,
+        "away_wins": 3
       },
       "time": "03:00",
-      "date": "2026-05-22"
+      "date": "2026-05-31"
     }
   ],
-  "updated_at": "2026-05-21T03:00:01.812698"
+  "updated_at": "2026-05-30T03:00:02.707012"
 }

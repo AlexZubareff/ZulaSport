@@ -27,6 +27,32 @@ def generate_news(output_path='/var/www/sport/news.html'):
 
     news = fetch_news(content_cache)
 
+    # Добавляем статью Zula Sport в начало
+    try:
+        import json as _json
+        from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+        _MOW = _td(hours=3)
+        _now = _dt.now(_tz.utc) + _MOW
+        
+        with open('/var/www/sport/docs/articles/premier-league.txt', 'r') as _f:
+            _text = _f.read()
+        
+        _news_item = {
+            'source': 'Zula Sport',
+            'title': 'Итоги сезона. Англия',
+            'time': f'{_now.strftime("%H:%M")} МСК',
+            'desc': '«Арсенал» на троне: 22 года боли — и вот оно, золото. Канониры Артеты вернули титул.',
+            'link': 'https://zulasport.ru/docs/articles/premier-league.html',
+            'image': '/docs/articles/premier-league-card.png',
+            'content_ru': _text,
+            'content': '',
+        'ts': _now.timestamp(),
+        }
+        news.insert(0, _news_item)
+    except Exception as _e:
+        print(f'  ⚠️ статья Zula: {_e}')
+
+
     # Сохраняем JSON для модалки
     news_json_path = '/var/www/sport/news_data.json'
     news_clean = []

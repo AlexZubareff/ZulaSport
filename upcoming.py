@@ -6,7 +6,7 @@
 Отправляет в канал @zula_sport_news
 """
 
-import json, requests, subprocess, os, sys, glob
+import json, requests, os, sys
 from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, '/root/.openclaw/workspace/odds')
@@ -15,7 +15,7 @@ flashscore_other = importlib.import_module('flashscore_other')
 
 sys.path.insert(0, '/opt')
 from date_utils import normalize_date, format_date_display, format_date_storage
-import tennis_names
+from name_ru import ru_name
 import nhl_api
 import balldontlie_api
 
@@ -218,27 +218,11 @@ def fetch_espn_upcoming(sport_path, date_str):
 
 # ─── КХЛ ─────────────────────────────────────────────────────────────
 def fetch_khl_upcoming(target_date):
-    """Предстоящие матчи КХЛ на указанную дату."""
-    try:
-        subprocess.run(
-            ['python3', '/root/.openclaw/workspace/khl_parser.py'],
-            capture_output=True, text=True, timeout=60
-        )
-    except:
-        pass
-
-    files = sorted(glob.glob('/tmp/khl*.json'))
-    if not files:
-        return []
-
-    try:
-        with open(files[0]) as f:
-            data = json.load(f)
-    except:
-        return []
-
-    if isinstance(data, dict):
-        data = list(data.values()) if all(isinstance(v, list) for v in data.values()) else []
+    """Предстоящие матчи КХЛ.
+    Устарело: КХЛ синхронизируется через fetch_upcoming_matches.py → flashscore.
+    Оставлено как пустой fallback.
+    """
+    return []
 
     date_str = target_date.strftime('%d.%m.%Y')
     matches = []
@@ -344,8 +328,8 @@ def fetch_tennis_upcoming(date_str):
                 if len(comps) < 2:
                     continue
 
-                p1 = tennis_names.ru_name(comps[0].get('athlete', {}).get('displayName', '?'))
-                p2 = tennis_names.ru_name(comps[1].get('athlete', {}).get('displayName', '?'))
+                p1 = ru_name(comps[0].get('athlete', {}).get('displayName', '?'))
+                p2 = ru_name(comps[1].get('athlete', {}).get('displayName', '?'))
 
                 # Время в МСК
                 try:

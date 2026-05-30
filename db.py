@@ -374,8 +374,12 @@ def _pred_to_params(pred: dict) -> dict:
 
     r = p.pop('result', None)
     if isinstance(r, dict):
-        p['result_win'] = 'correct' if r.get('win', {}).get('correct') else 'incorrect' if r.get('win', {}).get('correct') is False else None
-        p['result_total'] = 'correct' if r.get('total', {}).get('correct') else 'incorrect' if r.get('total', {}).get('correct') is False else None
+        p['result_win'] = None
+        if isinstance(r.get('win'), dict):
+            p['result_win'] = 'correct' if r['win'].get('correct') else 'incorrect' if r['win'].get('correct') is False else None
+        p['result_total'] = None
+        if isinstance(r.get('total'), dict):
+            p['result_total'] = 'correct' if r['total'].get('correct') else 'incorrect' if r['total'].get('correct') is False else None
 
     for key in ('generated_at', 'evaluated_at'):
         val = p.get(key)
@@ -395,6 +399,15 @@ def _pred_to_params(pred: dict) -> dict:
             p['match_date'] = dt_val.strftime('%Y-%m-%d')
         except:
             pass
+
+    # Нормализуем match_date в ISO-формат (YYYY-MM-DD)
+    md = p.get('match_date')
+    if md and isinstance(md, str) and len(md) == 10:
+        if '.' in md:
+            try:
+                p['match_date'] = datetime.strptime(md, '%d.%m.%Y').strftime('%Y-%m-%d')
+            except:
+                pass
 
     if not p.get('match_id') and p.get('league') and p.get('home') and p.get('away'):
         d = ''
@@ -417,7 +430,13 @@ def _pred_to_params(pred: dict) -> dict:
 
     for key in ('match_date', 'score', 'actual_winner', 'actual_total',
                 'prediction_text', 'evaluated_at', 'result_win', 'result_total',
-                'xgb_win_pred', 'xgb_win_conf', 'xgb_total_pred', 'xgb_total_conf'):
+                'odds_home', 'odds_draw', 'odds_away',
+                'odds_over', 'odds_under',
+                'xgb_win_pred', 'xgb_win_conf', 'xgb_total_pred', 'xgb_total_conf',
+                'total_line', 'game_id', 'espn_id', 'match_time',
+                'glicko_home_prob', 'glicko_draw_prob', 'glicko_away_prob',
+                'glicko_home_rating', 'glicko_away_rating',
+                'glicko_home_xg', 'glicko_away_xg'):
         if key not in p:
             p[key] = None
 
@@ -718,6 +737,88 @@ def get_active_model(model_type: str) -> dict:
     return execute_one(
         "SELECT * FROM model_versions WHERE model_type = %s AND active = TRUE", (model_type,)
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Теннис
+# ═══════════════════════════════════════════════════════════════════════
+
+def save_tennis_match(match_id, tennis_data: dict):
+    """Сохранить детали теннисного матча в tennis_matches."""
+    execute("""
+        INSERT INTO tennis_matches (match_id, tournament, tier, gender, round,
+            sets_data, winner_home, winner_away, has_ret, has_wo)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (match_id) DO UPDATE SET
+            tournament = EXCLUDED.tournament,
+            tier = EXCLUDED.tier,
+            gender = EXCLUDED.gender,
+            round = EXCLUDED.round,
+            sets_data = EXCLUDED.sets_data,
+            winner_home = EXCLUDED.winner_home,
+            winner_away = EXCLUDED.winner_away,
+            has_ret = EXCLUDED.has_ret,
+            has_wo = EXCLUDED.has_wo
+    """, (
+        match_id,
+        tennis_data.get('tournament', ''),
+        tennis_data.get('tier', ''),
+        tennis_data.get('gender', ''),
+        tennis_data.get('round', ''),
+        json.dumps(tennis_data.get('sets', [])),
+        tennis_data.get('winner_home'),
+        tennis_data.get('winner_away'),
+        tennis_data.get('has_ret', False),
+        tennis_data.get('has_wo', False),
+    ))
+
+
+def get_tennis_matches(date_from=None, date_to=None):
+    """Получить теннисные матчи с деталями через JOIN."""
+    from datetime import datetime
+    sql = """
+        SELECT m.id, m.league, m.home, m.away, m.match_date, m.match_time,
+               m.score, m.source, m.status,
+               tm.tournament, tm.tier, tm.gender, tm.round,
+               tm.sets_data, tm.winner_home, tm.winner_away,
+               tm.has_ret, tm.has_wo
+        FROM matches m
+        JOIN tennis_matches tm ON tm.match_id = m.id
+        WHERE 1=1
+    """
+    params = []
+    if date_from:
+        sql += " AND m.match_date >= %s"
+        params.append(date_from)
+    if date_to:
+        sql += " AND m.match_date < %s"
+        params.append(date_to)
+    sql += " ORDER BY m.match_date, m.match_time"
+    
+    rows = execute(sql, params)
+    result = []
+    for r in rows:
+        entry = {
+            'tournament': r['tournament'],
+            'tier': r['tier'],
+            'gender': r['gender'],
+            'round': r['round'],
+            'player1': r['home'],
+            'player2': r['away'],
+            'score': r['score'],
+            'match_date': r['match_date'],
+            'winner1': r['winner_home'],
+            'winner2': r['winner_away'],
+            'has_ret': r['has_ret'],
+            'has_wo': r['has_wo'],
+        }
+        # Парсим sets_data из JSONB
+        try:
+            entry['sets'] = json.loads(r['sets_data']) if isinstance(r['sets_data'], str) else (r['sets_data'] or [])
+        except:
+            entry['sets'] = []
+        result.append(entry)
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════════════

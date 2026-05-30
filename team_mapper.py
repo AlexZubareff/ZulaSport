@@ -159,7 +159,12 @@ CANONICAL = {
     'Рубин': ['Rubin', 'Rubin Kazan'],
     'Спартак': ['Spartak', 'Spartak Moscow'],
     'Зенит': ['Zenit', 'Zenit St. Petersburg'],
+    'Урал': ['Ural', 'FC Ural'],
     'Балтика': ['Baltika', 'FC Baltika', 'FC Baltika Kaliningrad'],
+
+    # ═══ Евролига / баскетбол ═══
+    'Дубай': ['Dubai'],
+    'Баскония': ['Baskonia', 'Saski Baskonia'],
 
     # ═══ НХЛ ═══
     'Анахайм Дакс': ['Anaheim Ducks'],

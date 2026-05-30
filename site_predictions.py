@@ -17,7 +17,7 @@ import site_common
 from site_common import escape, _team_logo, render_match_card
 
 # Теннисные имена (русские переводы)
-from tennis_names import ru_name as tennis_ru_name
+from name_ru import ru_name as tennis_ru_name
 
 # БД
 try:
@@ -46,21 +46,36 @@ function toggleTxt(id) {
 }
 
 function predCardHtml(league, home, away, timeStr, text, hLogo, aLogo, winLabel, totalLabel, cid) {
-    var top = '<div class="up-card up-card-v1">' +
-        '<div class="up-v1-grid"><div class="up-v1-left">' +
+    var dateStr = arguments.length > 10 ? arguments[10] : '';
+    var oddsH = arguments.length > 11 ? arguments[11] : '';
+    var oddsD = arguments.length > 12 ? arguments[12] : '';
+    var oddsA = arguments.length > 13 ? arguments[13] : '';
+    var oddsRow = '';
+    var picks = '<span class="pw-pick-tag">' + escapeHtml(winLabel) + '</span>';
+    if (totalLabel && totalLabel !== '—') {
+        picks += '<span class="pw-pick-tag">' + escapeHtml(totalLabel) + '</span>';
+    }
+    if (oddsH || oddsD || oddsA) {
+        oddsRow = '<div class="pw-e-odds">';
+        if (oddsH) oddsRow += '<span class="pw-odd"><span class="pw-odd-label">П1</span><span class="pw-odd-val">' + oddsH + '</span></span>';
+        if (oddsD) oddsRow += '<span class="pw-odd"><span class="pw-odd-label">X</span><span class="pw-odd-val">' + oddsD + '</span></span>';
+        if (oddsA) oddsRow += '<span class="pw-odd"><span class="pw-odd-label">П2</span><span class="pw-odd-val">' + oddsA + '</span></span>';
+        oddsRow += '</div>';
+    }
+    return '<div class="pw-e"><div class="up-card up-card-v1"><div class="up-v1-grid">' +
+        '<div class="up-v1-left">' +
         '<div class="up-v1-row"><span class="up-v1-team-row">' +
-        (hLogo ? '<img class="rl-logo" src="' + hLogo + '" alt="" loading="lazy" onerror="this.style.display=\'none\'">' : '') +
+        (hLogo ? '<img class="rl-logo" src="' + hLogo + '" alt="" loading="lazy" onerror="this.style.display=\\'none\\'">' : '') +
         '<span class="up-v1-name">' + escapeHtml(home) + '</span></span></div>' +
         '<div class="up-v1-row up-v1-row-away"><span class="up-v1-team-row">' +
-        (aLogo ? '<img class="rl-logo" src="' + aLogo + '" alt="" loading="lazy" onerror="this.style.display=\'none\'">' : '') +
+        (aLogo ? '<img class="rl-logo" src="' + aLogo + '" alt="" loading="lazy" onerror="this.style.display=\\'none\\'">' : '') +
         '<span class="up-v1-name">' + escapeHtml(away) + '</span></span></div>' +
-        '</div><div class="up-v1-right">' +
-        (timeStr ? '<div class="up-v1-time">' + escapeHtml(timeStr) + '</div>' : '') +
-        '</div></div></div>';
-    return '<div class="pred-widget">' + top +
-        '<div class="pred-mid">' + escapeHtml(winLabel) + ' ' + escapeHtml(totalLabel) + '</div>' +
-        '<button class="p-btn" onclick="toggleTxt(\\'' + cid + '\\')" id="b-' + cid + '">Показать прогноз</button>' +
-        '<div class="p-txt" id="' + cid + '" style="display:none">' + escapeHtml(text) + '</div></div>';
+        '</div><div class="pw-e-center">' + oddsRow +
+        '<div class="pw-e-pick">' + picks + '</div></div>' +
+        '<div class="up-v1-right">' +
+        (timeStr || dateStr ? '<div class="up-v1-time">' + (dateStr ? escapeHtml(dateStr) + ' ' : '') + (timeStr ? escapeHtml(timeStr) : '') + '</div>' : '') +
+        '<div class="up-v1-predict-btn" onclick="toggleTxt(\\'' + cid + '\\')">Прогноз</div>' +
+        '</div></div></div><div class="p-txt" id="' + cid + '" style="display:none">' + escapeHtml(text) + '</div></div>';
 }
 
 function escapeHtml(s) {
@@ -88,7 +103,8 @@ function loadMorePreds(league) {
         var p = batch[i];
         var cid = 'pj' + p._idx;
         var html = predCardHtml(league, p.home, p.away, p.timeStr, p.text,
-            p.hLogo, p.aLogo, p.winLabel, p.totalLabel, cid);
+            p.hLogo, p.aLogo, p.winLabel, p.totalLabel, cid,
+            p.dateStr, p.oddsHome, p.oddsDraw, p.oddsAway);
         var div = document.createElement('div');
         div.innerHTML = html;
         container.appendChild(div.firstChild);
@@ -117,6 +133,23 @@ def _build_pred_data(pred):
     home_logo = _team_logo(home_display, league)
     away_logo = _team_logo(away_display, league)
 
+    # Флаги стран для теннисистов (всегда в приоритете над дефолтными лого)
+    if is_tennis:
+        _PLAYER_FLAGS = getattr(_build_pred_data, '_player_flags', None)
+        if _PLAYER_FLAGS is None:
+            try:
+                with open('/opt/data/tennis/player_flags.json', encoding='utf-8') as _f:
+                    _PLAYER_FLAGS = json.load(_f)
+            except:
+                _PLAYER_FLAGS = {}
+            _build_pred_data._player_flags = _PLAYER_FLAGS
+        h_iso = _PLAYER_FLAGS.get(home_display, '')
+        a_iso = _PLAYER_FLAGS.get(away_display, '')
+        if h_iso:
+            home_logo = f'/static/logos/flags/{h_iso}.png'
+        if a_iso:
+            away_logo = f'/static/logos/flags/{a_iso}.png'
+
     hp = float(pred.get('glicko_home_prob', 0) or 0)
     ap = float(pred.get('glicko_away_prob', 0) or 0)
     if is_tennis:
@@ -136,47 +169,84 @@ def _build_pred_data(pred):
     else:
         total_label = '—'
 
+    # Дата для отображения на карточке
+    raw_date = pred.get('match_date', '')
+    date_str = ''
+    if raw_date:
+        if isinstance(raw_date, str):
+            # YYYY-MM-DD → DD.MM
+            parts = raw_date.split('-')
+            if len(parts) == 3 and len(parts[0]) == 4:
+                date_str = f'{parts[2]}.{parts[1]}'
+            elif len(raw_date) >= 5 and '.' in raw_date:
+                date_str = raw_date[:5]
+        elif hasattr(raw_date, 'strftime'):
+            date_str = raw_date.strftime('%d.%m')
+
     return {
         'home': home_display,
         'away': away_display,
         'timeStr': time_str,
+        'dateStr': date_str,
         'text': text,
         'hLogo': home_logo,
         'aLogo': away_logo,
         'winLabel': win_label,
         'totalLabel': total_label,
+        'oddsHome': str(pred.get('odds_home', '') or ''),
+        'oddsDraw': str(pred.get('odds_draw', '') or ''),
+        'oddsAway': str(pred.get('odds_away', '') or ''),
     }
 
 
+def _odds_html(d):
+    """Собрать HTML для коэффициентов, если есть."""
+    parts = []
+    if d.get('oddsHome'):
+        parts.append(f'<span class="pw-odd"><span class="pw-odd-label">П1</span><span class="pw-odd-val">{d["oddsHome"]}</span></span>')
+    if d.get('oddsDraw'):
+        parts.append(f'<span class="pw-odd"><span class="pw-odd-label">X</span><span class="pw-odd-val">{d["oddsDraw"]}</span></span>')
+    if d.get('oddsAway'):
+        parts.append(f'<span class="pw-odd"><span class="pw-odd-label">П2</span><span class="pw-odd-val">{d["oddsAway"]}</span></span>')
+    if not parts:
+        return ''
+    return '<div class="pw-e-odds">' + ''.join(parts) + '</div>'
+
+
 def _static_card(pred, cid):
-    """Сгенерировать статический HTML для прогноза."""
+    """Сгенерировать статический HTML для прогноза (вариант E)."""
     d = _build_pred_data(pred)
     text = d['text']
-    league = pred.get('league', '')
     home_display = d['home']
     away_display = d['away']
     time_str = d['timeStr']
-    home_logo = d['hLogo']
-    away_logo = d['aLogo']
-    win_label = d['winLabel']
-    total_label = d['totalLabel']
+    h_logo = f'<img class="rl-logo" src="{d["hLogo"]}" alt="" loading="lazy" onerror="this.style.display=\'none\'">' if d.get('hLogo') else ''
+    a_logo = f'<img class="rl-logo" src="{d["aLogo"]}" alt="" loading="lazy" onerror="this.style.display=\'none\'">' if d.get('aLogo') else ''
+    win_label = escape(d['winLabel'])
+    total_label = escape(d['totalLabel'])
 
-    top = render_match_card(
-        home=home_display, away=away_display, league=league,
-        status='scheduled',
-        match_time=time_str,
-        home_logo=home_logo,
-        away_logo=away_logo,
-        has_pred=True,
-    )
+    odds_html = _odds_html(d)
+    picks = f'<span class="pw-pick-tag">{win_label}</span>'
+    if total_label and total_label != '—':
+        picks += f'<span class="pw-pick-tag">{total_label}</span>'
+
+    # Время + дата
+    time_parts = []
+    if d.get('dateStr'):
+        time_parts.append(escape(d['dateStr']))
+    if time_str:
+        time_parts.append(escape(time_str))
+    time_html = f'<div class="up-v1-time">{" ".join(time_parts)}</div>' if time_parts else ''
 
     return f'''
-<div class="pred-widget">
-{top}
-    <div class="pred-mid">{win_label} {total_label}</div>
-    <button class="p-btn" onclick="toggleTxt('{cid}')" id="b-{cid}">Показать прогноз</button>
-    <div class="p-txt" id="{cid}" style="display:none">{html_mod.escape(text)}</div>
-</div>'''
+<div class="pw-e"><div class="up-card up-card-v1"><div class="up-v1-grid">
+    <div class="up-v1-left">
+        <div class="up-v1-row"><span class="up-v1-team-row">{h_logo}<span class="up-v1-name">{escape(home_display)}</span></span></div>
+        <div class="up-v1-row up-v1-row-away"><span class="up-v1-team-row">{a_logo}<span class="up-v1-name">{escape(away_display)}</span></span></div>
+    </div>
+    <div class="pw-e-center">{odds_html}<div class="pw-e-pick">{picks}</div></div>
+    <div class="up-v1-right">{time_html}<div class="up-v1-predict-btn" onclick="toggleTxt('{cid}')">Прогноз</div></div>
+</div></div><div class="p-txt" id="{cid}" style="display:none">{html_mod.escape(text)}</div></div>'''
 
 
 # ═══════════════════ Генератор ═════════════════════════════════════
@@ -205,6 +275,98 @@ def generate_predictions(output_path='/var/www/sport/predictions.html'):
             except:
                 pass
 
+    # Фильтр: убираем прогнозы на уже прошедшие даты
+    today = now.date()
+    for league in list(preds_by_league.keys()):
+        filtered = []
+        for p in preds_by_league[league]:
+            md = p.get('match_date', '')
+            if md:
+                try:
+                    if isinstance(md, str):
+                        if '-' in md and len(md) >= 10:
+                            from datetime import date as _d
+                            p_date = _d(*map(int, md[:10].split('-')))
+                        elif '.' in md and len(md) >= 10:
+                            from datetime import date as _d
+                            p_date = _d(*map(int, [md[6:10], md[3:5], md[:2]]))
+                        else:
+                            filtered.append(p)
+                            continue
+                    elif hasattr(md, 'strftime'):
+                        p_date = md
+                    else:
+                        filtered.append(p)
+                        continue
+                    if p_date >= today:
+                        filtered.append(p)
+                except:
+                    filtered.append(p)
+            else:
+                filtered.append(p)
+        preds_by_league[league] = filtered
+
+    # Дедупликация: для тенниса — по fuzzy-сравнению имён
+    def _name_sim(a, b):
+        """Levenshtein similarity (0..1)."""
+        n, m = len(a), len(b)
+        if n > m: a, b, n, m = b, a, m, n
+        curr = list(range(n + 1))
+        for i in range(1, m + 1):
+            prev, curr = curr, [i] + [0] * n
+            for j in range(1, n + 1):
+                cost = 0 if a[j - 1] == b[i - 1] else 1
+                curr[j] = min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost)
+        return 1 - curr[n] / max(n, m, 1)
+
+    # Таблица транслитерации кириллицы → латиницы (для сравнения имён)
+    _TRANS_TABLE = str.maketrans({
+        'а':'a','б':'b','в':'v','г':'g','д':'d','е':'e','ё':'e',
+        'ж':'zh','з':'z','и':'i','й':'i','к':'k','л':'l','м':'m',
+        'н':'n','о':'o','п':'p','р':'r','с':'s','т':'t','у':'u',
+        'ф':'f','х':'kh','ц':'ts','ч':'ch','ш':'sh','щ':'sh','ъ':'',
+        'ы':'y','ь':'','э':'e','ю':'yu','я':'ya',
+    })
+
+    def _translit(s):
+        return s.translate(_TRANS_TABLE)
+
+    for league in list(preds_by_league.keys()):
+        if league in ('ATP', 'WTA'):
+            original = preds_by_league[league]
+            # Сортируем по ID (сначала новые)
+            sorted_preds = sorted(original, key=lambda x: -(x.get('id', 0) or 0))
+            keep = []
+            for p in sorted_preds:
+                home = p.get('home', '').lower()
+                away = p.get('away', '').lower()
+                p_date = str(p.get('match_date', '') or '')[:10]
+                p_time = str(p.get('match_time', '') or '')[:5]
+                is_dup = False
+                for k in keep:
+                    k_home = k.get('home', '').lower()
+                    k_away = k.get('away', '').lower()
+                    k_date = str(k.get('match_date', '') or '')[:10]
+                    k_time = str(k.get('match_time', '') or '')[:5]
+                    if p_date != k_date or p_time != k_time:
+                        continue
+                    # Сравниваем имена отдельно с транслитерацией
+                    def _cmp(a, b):
+                        return _name_sim(_translit(a), _translit(b))
+                    sim_hh = _cmp(home, k_home)
+                    sim_aa = _cmp(away, k_away)
+                    sim_ha = _cmp(home, k_away)
+                    sim_ah = _cmp(away, k_home)
+                    if (sim_hh > 0.55 and sim_aa > 0.55) or (sim_ha > 0.55 and sim_ah > 0.55):
+                        is_dup = True
+                        break
+                if not is_dup:
+                    keep.append(p)
+            removed = len(original) - len(keep)
+            if removed:
+                print(f'  🎾 {league}: убрано {removed} дублей')
+            preds_by_league[league] = keep
+
     # Собираем превью-данные для JS
     pred_data_js = {}
     all_preds_flat = []
@@ -227,11 +389,15 @@ def generate_predictions(output_path='/var/www/sport/predictions.html'):
             'home': i['home'],
             'away': i['away'],
             'timeStr': i['timeStr'],
+            'dateStr': i.get('dateStr', ''),
             'text': i['text'],
             'hLogo': i['hLogo'],
             'aLogo': i['aLogo'],
             'winLabel': i['winLabel'],
             'totalLabel': i['totalLabel'],
+            'oddsHome': i.get('oddsHome', ''),
+            'oddsDraw': i.get('oddsDraw', ''),
+            'oddsAway': i.get('oddsAway', ''),
             '_idx': i['_idx'],
         } for i in items]
 
@@ -243,7 +409,7 @@ def generate_predictions(output_path='/var/www/sport/predictions.html'):
     if not preds_by_league:
         html += '<p style="color:#666;font-size:14px">Нет активных прогнозов.</p>'
     else:
-        html += '<div class="card-grid">'
+        html += '<div class="pw-grid">'
         for league in sorted(preds_by_league.keys()):
             sport = 'tennis' if league in ('ATP', 'WTA') else 'football'
             html += site_common.section_header(league, sport)

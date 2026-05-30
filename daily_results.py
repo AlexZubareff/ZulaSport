@@ -6,21 +6,48 @@
 Отправляет в канал @zula_sport_news
 """
 
-import json, requests, subprocess, os, sys, glob, re
+import json, requests, os, sys, re
 from datetime import datetime, timedelta, timezone
 
 
 
-# flashscore парсер для ВТБ, Euroleague, ЧМ по хоккею
-sys.path.insert(0, '/root/.openclaw/workspace/odds')
-import importlib
-flashscore_other = importlib.import_module('flashscore_other')
-
 sys.path.insert(0, '/opt')
 from date_utils import normalize_date, format_date_display, today_storage, yesterday_storage
-import tennis_names
-import nhl_api
-import balldontlie_api
+from name_ru import ru_name
+
+try:
+    import db
+    HAS_DB = True
+except:
+    HAS_DB = False
+
+
+def _fetch_from_db(league_name, date_from, date_to):
+    """Прочитать завершённые матчи лиги из БД."""
+    if not HAS_DB:
+        return []
+    date_from_str = date_from.strftime('%Y-%m-%d') if hasattr(date_from, 'strftime') else str(date_from)[:10]
+    date_to_str = date_to.strftime('%Y-%m-%d') if hasattr(date_to, 'strftime') else str(date_to)[:10]
+    try:
+        rows = db.execute(
+            "SELECT home, away, score, match_time, match_date FROM matches "
+            "WHERE league = %s AND status = 'finished' "
+            "AND match_date >= %s AND match_date < %s "
+            "ORDER BY match_time",
+            (league_name, date_from_str, date_to_str)
+        )
+        result = []
+        for r in rows:
+            result.append({
+                'home': r['home'],
+                'away': r['away'],
+                'score': r['score'],
+                'time': r.get('match_time', ''),
+            })
+        return result
+    except Exception as e:
+        print(f'  ⚠️ БД {league_name}: {e}')
+        return []
 
 # ─── КОНФИГУРАЦИЯ ───────────────────────────────────────────────────
 SSTATS_KEY = open('/etc/sstats.key').read().strip()
@@ -412,8 +439,8 @@ def fetch_tennis(date_str):
                 if len(comps) < 2:
                     continue
 
-                p1 = tennis_names.ru_name(comps[0].get('athlete', {}).get('displayName', '?'))
-                p2 = tennis_names.ru_name(comps[1].get('athlete', {}).get('displayName', '?'))
+                p1 = ru_name(comps[0].get('athlete', {}).get('displayName', '?'))
+                p2 = ru_name(comps[1].get('athlete', {}).get('displayName', '?'))
                 w1 = comps[0].get('winner', False)
                 w2 = comps[1].get('winner', False)
 
@@ -469,29 +496,11 @@ def fetch_tennis(date_str):
 
 # ─── КХЛ ─────────────────────────────────────────────────────────────
 def fetch_khl(date_from=None, date_to=None):
-    """Завершённые матчи КХЛ через имеющийся парсер.
-    date_from/date_to — datetime (UTC), матчи фильтруются по дате.
+    """Завершённые матчи КХЛ.
+    Устарело: КХЛ синхронизируется через sync_results_to_db.py → flashscore.
+    Оставлено как пустой fallback для обратной совместимости.
     """
-    try:
-        subprocess.run(
-            ['python3', '/root/.openclaw/workspace/khl_parser.py'],
-            capture_output=True, text=True, timeout=60
-        )
-    except:
-        pass
-
-    files = sorted(glob.glob('/tmp/khl*.json'))
-    if not files:
-        return []
-
-    try:
-        with open(files[0]) as f:
-            data = json.load(f)
-    except:
-        return []
-
-    if isinstance(data, dict):
-        data = list(data.values()) if all(isinstance(v, list) for v in data.values()) else []
+    return []
 
     matches = []
     for m in data:
@@ -695,98 +704,45 @@ def format_tennis_full(tree, gender_emoji):
 def main():
     now = datetime.now(UTC)
 
-    # Последние 24 часа (всегда, независимо от времени запуска)
+    # Последние 24 часа
     date_to = now
     date_from = now - timedelta(hours=24)
-    # Для даты файла и API (ESPN/NHL) используем МСК
-    now_msk = now + MOW
-    yesterday_msk = now_msk - timedelta(days=1)
     date_str = yesterday_storage()
     date_str_today = today_storage()
 
     print(f'📅 Период: {date_from.isoformat()} — {date_to.isoformat()}')
 
-    # ── Футбол ──
+    # Все лиги, которые есть в SSTATS_LEAGUES + дополнительные
+    FOOTBALL_LEAGUE_NAMES = [v[0] for v in SSTATS_LEAGUES.values()]
+    FOOTBALL_EMOJI = {v[0]: v[1] for v in SSTATS_LEAGUES.values()}
+
+    # ── Футбол (из БД) ──
     football_leagues = []
-    for lid, (name, emoji) in SSTATS_LEAGUES.items():
-        matches, err = fetch_sstats_league(lid, date_from, date_to)
-        print(f'{"⚠️" if err else "✅"} {emoji} {name}: {len(matches)}')
+    for name in FOOTBALL_LEAGUE_NAMES:
+        matches = _fetch_from_db(name, date_from, date_to)
+        emoji = FOOTBALL_EMOJI.get(name, '⚽')
+        print(f'{"✅" if matches else "⚠️"} {emoji} {name}: {len(matches)}')
         football_leagues.append((name, emoji, matches))
 
-    # ── Хоккей ──
+    # ── Хоккей (из БД) ──
     hockey_leagues = []
-    nhl = nhl_api.fetch_nhl_results(date_str)
-    print(f'✅ 🏒 НХЛ: {len(nhl)}')
-    hockey_leagues.append(('НХЛ', '🏒', nhl))
+    for name in ('НХЛ', 'КХЛ', 'ЧМ по хоккею'):
+        matches = _fetch_from_db(name, date_from, date_to)
+        print(f'{"✅" if matches else "⚠️"} 🏒 {name}: {len(matches)}')
+        hockey_leagues.append((name, '🏒', matches))
 
-    khl = fetch_khl(date_from=date_from, date_to=date_to)
-    print(f'✅ 🏒 КХЛ: {len(khl)}')
-    hockey_leagues.append(('КХЛ', '🏒', khl))
-    
-    # ЧМ по хоккею
-    try:
-        whc, _ = flashscore_other.fetch_results('world-cup-hockey', date_from, date_to)
-        print(f'✅ 🏒 ЧМ по хоккею: {len(whc)}')
-    except:
-        whc = []
-        print('⚠️ 🏒 ЧМ по хоккею: ошибка Playwright, пропускаем')
-    hockey_leagues.append(('ЧМ по хоккею', '🏒', whc))
-
-    # ── Баскетбол ──
+    # ── Баскетбол (из БД) ──
     basketball_leagues = []
-    nba = balldontlie_api.fetch_nba_results(date_str)
-    print(f'✅ 🏀 NBA: {len(nba)}')
-    basketball_leagues.append(('NBA', '🏀', nba))
-    
-    # Лига ВТБ
-    try:
-        vtb, _ = flashscore_other.fetch_results('vtb', date_from, date_to)
-        print(f'✅ 🏀 Лига ВТБ: {len(vtb)}')
-    except:
-        vtb = []
-        print('⚠️ 🏀 Лига ВТБ: ошибка Playwright, пропускаем')
-    basketball_leagues.append(('Лига ВТБ', '🏀', vtb))
-    
-    # Euroleague
-    try:
-        euro, _ = flashscore_other.fetch_results('euroleague', date_from, date_to)
-        print(f'✅ 🏀 Euroleague: {len(euro)}')
-    except:
-        euro = []
-        print('⚠️ 🏀 Euroleague: ошибка Playwright, пропускаем')
-    basketball_leagues.append(('Euroleague', '🏀', euro))
+    for name in ('NBA', 'Лига ВТБ', 'Euroleague'):
+        matches = _fetch_from_db(name, date_from, date_to)
+        print(f'{"✅" if matches else "⚠️"} 🏀 {name}: {len(matches)}')
+        basketball_leagues.append((name, '🏀', matches))
 
-    # ── Теннис ──
-    tennis = fetch_tennis(date_str) + fetch_tennis(date_str_today)
-    print(f'✅ 🎾 Теннис: {len(tennis)} матчей')
-
-    # ── Сохраняем результаты в JSON (для сайта) ──
-    try:
-        results_data = []
-        for league_list, sport in [(football_leagues, 'football'), (hockey_leagues, 'hockey'), (basketball_leagues, 'basketball')]:
-            for name, emoji, matches in league_list:
-                for m in matches:
-                    results_data.append({
-                        'sport': sport,
-                        'league': name,
-                        'home': m.get('home', m.get('team1', '?')),
-                        'away': m.get('away', m.get('team2', '?')),
-                        'score': m.get('score', '-:-'),
-                    })
-        for t in tennis:
-            p1 = t.get('player1', '?')
-            p2 = t.get('player2', '?')
-            score = ' '.join(f'{s1}-{s2}' for s1, s2, _ in t.get('sets', [])) if t.get('sets') else t.get('score', '')
-            results_data.append({
-                'sport': 'tennis',
-                'league': t.get('tournament', 'Теннис'),
-                'home': p1, 'away': p2,
-                'score': score or '-:-',
-            })
-        with open('/tmp/daily_results_data.json', 'w', encoding='utf-8') as f:
-            json.dump({'date': yesterday_msk.strftime('%d.%m.%Y'), 'results': results_data, 'generated_at': now.isoformat()}, f, ensure_ascii=False)
-    except Exception as e:
-        print(f'⚠️ Ошибка сохранения результатов: {e}')
+    # ── Теннис (из БД: tennis_matches JOIN matches) ──
+    date_from_str = date_from.strftime('%Y-%m-%d')
+    date_to_str = date_to.strftime('%Y-%m-%d')
+    tennis = db.get_tennis_matches(date_from=date_from_str, date_to=date_to_str)
+    print(f'{"✅" if tennis else "⚠️"} 🎾 Теннис: {len(tennis)} матчей (БД)')
 
     # ── Пост ──
     hidden_store = {}

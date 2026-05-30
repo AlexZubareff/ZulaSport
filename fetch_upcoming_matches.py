@@ -76,6 +76,15 @@ FLASHSCORE_LEAGUES = {
     'euroleague':       ('Евролига',      'basketball'),
 }
 
+# Сезонные рамки для лиг (месяц_начала, месяц_окончания включительно)
+# None = без ограничений
+SEASON_RANGES = {
+    'khl':              (9, 4),    # Сентябрь — Апрель
+    'nhl':              (10, 6),   # Октябрь — Июнь
+    'vtb':              (9, 5),    # Сентябрь — Май
+    'euroleague':       (10, 5),   # Октябрь — Май
+}
+
 # ─── Внутренние маппинги ───────────────────────────────────────────
 TEAMS_RU = {}
 try:
@@ -344,10 +353,32 @@ def _fetch_flashscore(target_date: datetime) -> List[Dict]:
                 _orig_path = _FS_LEAGUES[league_key]['path']
                 _FS_LEAGUES[league_key]['path'] = _orig_path.rstrip('/') + '/fixtures/'
 
-            fs_matches, _ = fetch_upcoming_live(league_key, date_from=wc_from, date_to=wc_to)
+            fs_matches, _ = fetch_upcoming_live(league_key, date_from=wc_from.isoformat(), date_to=wc_to.isoformat())
         except Exception as e:
             print(f'  ⚠️ Flashscore {league_name}: {e}')
             continue
+
+        # Фильтр по сезону
+        season_range = SEASON_RANGES.get(league_key)
+        if season_range:
+            start_m, end_m = season_range
+            match_m = target_date.month
+            if start_m <= end_m:
+                in_season = start_m <= match_m <= end_m
+            else:
+                # Переход через год (напр. 9-4: сентябрь-апрель)
+                in_season = match_m >= start_m or match_m <= end_m
+            if not in_season:
+                print(f'  ⏭️ {league_name}: вне сезона ({match_m}), пропускаем')
+                if fs_matches:
+                    from alert import report_data_quality
+                    report_data_quality(
+                        f'flashscore_{league_key}',
+                        f'Лига {league_name}: flashscore вернул {len(fs_matches)} матчей '
+                        f'на {target_date.date()}, но это вне сезона ({match_m}). '
+                        f'Данные отклонены.'
+                    )
+                continue
 
         offset = FLASHSCORE_TZ_OFFSETS.get(league_key, 0)
         for m in fs_matches:
@@ -579,7 +610,6 @@ def collect_all(target_date: Optional[str] = None) -> List[Dict]:
 
     import re as _re
     saved_db = _save_to_db(all_matches)
-    _save_to_json(all_matches)
 
     elapsed = time.time() - start
     print(f'\n✅ Итого: {len(all_matches)} матчей, {saved_db} в БД, {elapsed:.1f}с')

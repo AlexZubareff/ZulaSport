@@ -168,6 +168,43 @@ def report_failure(source: str, error: str = '') -> Optional[str]:
     return None
 
 
+def report_data_quality(source: str, detail: str) -> bool:
+    """Сообщить о проблеме с качеством данных (не API-ошибка).
+
+    Отправляет немедленный алерт, без порога по количеству сбоев.
+    Дедупликация: не чаще 1 раза в час на источник.
+    Возвращает True, если алерт был отправлен.
+    """
+    state = _load_state()
+    sources = state.get('sources', {})
+    if source not in sources:
+        sources[source] = {
+            'consecutive_failures': 0,
+            'last_failure': None,
+            'last_alert_sent': None,
+        }
+
+    info = sources[source]
+    now_ts = time.time()
+    last_alert = info.get('last_alert_sent')
+
+    if last_alert and (now_ts - last_alert) < SILENCE_PERIOD:
+        return False  # дедупликация, алерт уже был
+
+    alert_msg = (
+        f'⚡ {source}: проблема с данными\n'
+        f'{detail[:300]}'
+    )
+    info['last_alert_sent'] = now_ts
+    state['sources'] = sources
+    _save_state(state)
+
+    logger.warning(f'⚠️ {source}: качество данных — {detail[:100]}')
+    sent = _send_telegram(alert_msg)
+    return sent
+
+
+
 def get_source_status(source: str) -> dict:
     """Получить статус источника."""
     state = _load_state()
